@@ -1,3 +1,5 @@
+local log = require("codecompanion.utils.log")
+
 local Helpers = {}
 
 Helpers = vim.tbl_extend("error", Helpers, require("tests.expectations"))
@@ -108,6 +110,48 @@ Helpers.teardown_chat_buffer = function()
   package.loaded["codecompanion.utils.bar_again"] = nil
 end
 
+---Simulates a real tool call in a chat buffer
+---@param chat CodeCompanion.Chat
+---@param tool_call table The tool call data
+---@param tool_output string The output from the tool
+---@param messages? table Additional messages to add to the chat
+Helpers.make_tool_call = function(chat, tool_call, tool_output, messages)
+  messages = messages or {}
+
+  -- Firstly, add the LLM's intro message before the tool call
+  if messages.llm_initial_response then
+    chat:add_buf_message({
+      role = "llm",
+      content = messages.llm_initial_response,
+    }, { type = chat.MESSAGE_TYPES.LLM_MESSAGE })
+    chat:add_message({
+      role = "llm",
+      content = messages.llm_initial_response,
+    })
+  end
+
+  -- Then add the LLM's tool call
+  chat:add_message({
+    role = "llm",
+    tool_calls = { tool_call.function_call },
+  }, { visible = false })
+
+  -- Then add the tool output
+  chat:add_tool_output(tool_call, tool_output)
+
+  -- Finally, add any LLM messages
+  if messages.llm_final_response then
+    chat:add_buf_message({
+      role = "llm",
+      content = messages.llm_final_response,
+    }, { type = chat.MESSAGE_TYPES.LLM_MESSAGE })
+    chat:add_message({
+      role = "llm",
+      content = messages.llm_final_response,
+    })
+  end
+end
+
 ---Get the lines of a buffer
 ---@param bufnr number
 ---@return table
@@ -134,6 +178,16 @@ Helpers.setup_inline = function(config)
       end_col = 0,
     },
   })
+end
+
+---Start a child Neovim instance with minimal configuration
+---@param child table
+---@return nil
+Helpers.child_start = function(child)
+  child.restart({ "-u", "scripts/minimal_init.lua" })
+  child.o.statusline = ""
+  child.o.laststatus = 0
+  child.o.cmdheight = 0
 end
 
 return Helpers

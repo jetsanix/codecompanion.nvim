@@ -72,12 +72,12 @@ function FuncExecutor:run(func, action, input, callback)
   ---@param msg {status:"success"|"error", data:any}
   local function output_handler(msg)
     if tool_finished then
-      log:warn("output_handler for tool %s is called more than once.", self.executor.tool.name)
-      return
+      return log:info("output_handler for tool %s called more than once", self.executor.tool.name)
     end
     tool_finished = true
     if msg.status == self.executor.agent.constants.STATUS_ERROR then
-      return self.executor:error(action, msg.data or "An error occurred")
+      self.executor:error(action, msg.data or "An error occurred")
+      return self.executor:close()
     end
 
     self.executor:success(action, msg.data)
@@ -91,7 +91,8 @@ function FuncExecutor:run(func, action, input, callback)
     return func(self.executor.agent, action, input, output_handler)
   end)
   if not ok then
-    return self.executor:error(action, output)
+    self.executor:error(action, output)
+    return self.executor:close()
   end
 
   if output ~= nil then

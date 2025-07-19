@@ -1,3 +1,4 @@
+local og_config = require("codecompanion.config")
 return {
   constants = {
     LLM_ROLE = "llm",
@@ -63,18 +64,45 @@ return {
         llm = "assistant",
         user = "foo",
       },
+      keymaps = og_config.strategies.chat.keymaps,
       tools = {
         ["cmd_runner"] = {
           callback = "strategies.chat.agents.tools.cmd_runner",
           description = "Run shell commands initiated by the LLM",
         },
-        ["editor"] = {
-          callback = "strategies.chat.agents.tools.editor",
-          description = "Update a buffer with the LLM's response",
-        },
         ["files"] = {
           callback = "strategies.chat.agents.tools.files",
           description = "Update the file system with the LLM's response",
+        },
+        ["next_edit_suggestion"] = {
+          callback = "strategies.chat.agents.tools.next_edit_suggestion",
+          description = "Suggest and jump to the next position to edit",
+        },
+        ["insert_edit_into_file"] = {
+          callback = "strategies.chat.agents.tools.insert_edit_into_file",
+          description = "Insert code into an existing file",
+          opts = {
+            patching_algorithm = "strategies.chat.agents.tools.helpers.patch",
+          },
+        },
+        ["create_file"] = {
+          callback = "strategies.chat.agents.tools.create_file",
+          description = "Create a file in the current working directory",
+        },
+        ["file_search"] = {
+          callback = "strategies.chat.agents.tools.file_search",
+          description = "Search for files in the current working directory by glob pattern",
+          opts = {
+            max_results = 500,
+          },
+        },
+        ["grep_search"] = {
+          callback = "strategies.chat.agents.tools.grep_search",
+          description = "Search for text in the current working directory",
+        },
+        ["read_file"] = {
+          callback = "strategies.chat.agents.tools.read_file",
+          description = "Read a file in the current working directory",
         },
         ["weather"] = {
           callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/weather.lua",
@@ -83,6 +111,22 @@ return {
         ["func"] = {
           callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func.lua",
           description = "Some function tool to test",
+        },
+        ["func_approval"] = {
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_approval.lua",
+          description = "Some function tool to test with an approval step",
+          opts = {
+            requires_approval = true,
+          },
+        },
+        ["func_approval2"] = {
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_approval2.lua",
+          description = "Some function tool to test with an approval step that's a table",
+          opts = {
+            requires_approval = {
+              buffer = true, -- We're not actually testing this. requires_approval being a table triggers the user_approval test
+            },
+          },
         },
         ["func_handlers_once"] = {
           callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_handlers_once.lua",
@@ -136,9 +180,18 @@ return {
           callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd_queue.lua",
           description = "Cmd tool",
         },
+        ["cmd_queue_error"] = {
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd_queue_error.lua",
+          description = "Cmd tool",
+        },
         ["mock_cmd_runner"] = {
           callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/mock_cmd_runner.lua",
           description = "Cmd tool",
+        },
+        -- Add tool with same name as a tool group to verify word boundary matching
+        ["tool_group_tool"] = {
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/tool_group_tool.lua",
+          description = "Tool group extended",
         },
         groups = {
           ["tool_group"] = {
@@ -149,9 +202,36 @@ return {
               "cmd",
             },
           },
+          ["test_group"] = {
+            description = "Test Group",
+            system_prompt = "Test group system prompt",
+            tools = { "func", "weather" },
+            opts = { collapse_tools = true },
+          },
+          ["test_group2"] = {
+            description = "Group to be used for testing references",
+            system_prompt = "Individual tools system prompt",
+            tools = { "func", "weather" },
+            opts = { collapse_tools = false },
+          },
+          ["remove_group"] = {
+            description = "Group to be removed during testing of references",
+            system_prompt = "System prompt to be removed",
+            tools = { "func", "weather" },
+            opts = { collapse_tools = true },
+          },
         },
         opts = {
           system_prompt = "My tool system prompt",
+          wait_timeout = 3000,
+          folds = {
+            enabled = false,
+            failure_words = {
+              "error",
+              "failed",
+              "invalid",
+            },
+          },
         },
       },
       variables = {
@@ -167,12 +247,21 @@ return {
           callback = "tests.strategies.chat.variables.foo",
           description = "foo",
         },
+        -- Add test variables to verify word boundary matching
+        ["foo://10-20-30:40"] = {
+          callback = "tests.strategies.chat.variables.foo_special",
+          description = "Variable with prefix starting with 'foo' and with special chars",
+        },
         ["bar"] = {
           callback = "tests.strategies.chat.variables.bar",
           description = "bar",
           opts = {
             has_params = true,
           },
+        },
+        ["screenshot://screenshot-2025-05-21T11-17-45.440Z"] = {
+          callback = "tests.strategies.chat.variables.screenshot",
+          description = "Screenshot",
         },
         ["baz"] = {
           callback = "tests.strategies.chat.variables.baz",
@@ -194,6 +283,15 @@ return {
             provider = "default",
           },
         },
+        ["fetch"] = {
+          callback = "strategies.chat.slash_commands.fetch",
+          description = "Insert URL contents",
+          opts = {
+            adapter = "jina", -- jina|tavily
+            cache_path = vim.fn.stdpath("data") .. "/codecompanion/urls",
+            provider = "default",
+          },
+        },
         ["file"] = {
           callback = "strategies.chat.slash_commands.file",
           description = "Insert a file",
@@ -209,7 +307,7 @@ return {
       },
     },
     inline = {
-      adapter = "foo",
+      adapter = "test_adapter",
       variables = {
         ["foo"] = {
           callback = vim.fn.getcwd() .. "/tests/strategies/inline/variables/foo.lua",
@@ -281,8 +379,10 @@ return {
   display = {
     chat = {
       icons = {
-        pinned_buffer = " ",
-        watched_buffer = "👀 ",
+        buffer_pin = " ",
+        buffer_watch = "👀 ",
+        tool_success = "!!",
+        tool_failure = "xx",
       },
       show_references = true,
       show_settings = false,
@@ -307,8 +407,13 @@ return {
         },
       },
       intro_message = "", -- Keep this blank or it messes up the screenshot tests
+      show_tools_processing = false, -- Show the loading message when tools are being executed?
     },
     diff = { enabled = false },
+    icons = {
+      loading = " ",
+      warning = " ",
+    },
   },
   opts = {
     system_prompt = "default system prompt",

@@ -2,15 +2,33 @@ local _extensions = require("codecompanion._extensions")
 local config = require("codecompanion.config")
 local context_utils = require("codecompanion.utils.context")
 local log = require("codecompanion.utils.log")
+local utils = require("codecompanion.utils")
 
 local api = vim.api
-_G.svim = vim.fn.has("nvim-0.11") == 1 and vim or require("codecompanion.compat")
 
 ---@class CodeCompanion
 local CodeCompanion = {
   ---@type table Access to extension exports via extensions.foo
   extensions = _extensions.manager,
 }
+
+---Keep the chat buffer open when switching tabs
+---@return nil
+local function setup_sticky_chat_buffer()
+  api.nvim_create_autocmd("TabEnter", {
+    group = api.nvim_create_augroup("codecompanion.sticky_buffer", { clear = true }),
+    callback = function(args)
+      local chat = CodeCompanion.last_chat()
+      if chat and chat.ui:is_visible_non_curtab() then
+        chat.context = context_utils.get(args.buf)
+        vim.schedule(function()
+          CodeCompanion.close_last_chat()
+          chat.ui:open({ toggled = true })
+        end)
+      end
+    end,
+  })
+end
 
 ---Register an extension with setup and exports
 ---@param name string The name of the extension
@@ -134,6 +152,8 @@ CodeCompanion.chat = function(args)
         return CodeCompanion.add(args)
       elseif prompt == "toggle" then
         return CodeCompanion.toggle()
+      elseif prompt == "refreshcache" then
+        return CodeCompanion.refresh_cache()
       else
         table.insert(messages, {
           role = config.constants.USER_ROLE,
@@ -198,12 +218,33 @@ CodeCompanion.toggle = function()
     return CodeCompanion.chat()
   end
 
-  if chat.ui:is_visible() then
+  if chat.ui:is_visible_non_curtab() then
+    chat.ui:hide()
+  elseif chat.ui:is_visible() then
     return chat.ui:hide()
   end
 
   chat.context = context_utils.get(api.nvim_get_current_buf())
   CodeCompanion.close_last_chat()
+  chat.ui:open({ toggled = true })
+end
+
+---Make a previously hidden chat buffer, visible again
+---@param bufnr integer
+---@return nil
+CodeCompanion.restore = function(bufnr)
+  if not bufnr or not api.nvim_buf_is_valid(bufnr) then
+    return log:error("Chat buffer %d is not valid", bufnr)
+  end
+
+  local chat = require("codecompanion.strategies.chat").buf_get_chat(bufnr)
+  if not chat then
+    return log:error("Could not restore the chat buffer")
+  end
+
+  if chat.ui:is_visible() then
+    return
+  end
   chat.ui:open()
 end
 
@@ -232,6 +273,14 @@ end
 CodeCompanion.actions = function(args)
   local context = context_utils.get(api.nvim_get_current_buf(), args)
   return require("codecompanion.actions").launch(context, args)
+end
+
+---Refresh any of the caches used by the plugin
+---@return nil
+CodeCompanion.refresh_cache = function()
+  local ToolFilter = require("codecompanion.strategies.chat.agents.tool_filter")
+  ToolFilter.refresh_cache()
+  utils.notify("Refreshed the cache for all chat buffers", vim.log.levels.INFO)
 end
 
 ---Return the JSON schema for the workspace file
@@ -295,6 +344,12 @@ CodeCompanion.setup = function(opts)
     api.nvim_create_user_command(cmd.cmd, cmd.callback, cmd.opts)
   end
 
+  -- Set up completion
+  local completion = config.strategies.chat.opts.completion_provider
+  pcall(function()
+    return require("codecompanion.providers.completion." .. completion .. ".setup")
+  end)
+
   -- Set the log root
   log.set_root(log.new({
     handlers = {
@@ -322,6 +377,11 @@ CodeCompanion.setup = function(opts)
         log:error("Error loading extension %s: %s", name, ext_error)
       end
     end
+  end
+
+  local window_config = config.display.chat.window
+  if window_config.sticky and (window_config.layout ~= "buffer") then
+    setup_sticky_chat_buffer()
   end
 end
 

@@ -4,6 +4,15 @@ local Queue = require("codecompanion.strategies.chat.agents.executor.queue")
 local log = require("codecompanion.utils.log")
 local util = require("codecompanion.utils")
 
+local fmt = string.format
+
+---Add a response to the chat buffer regarding a tool's execution
+---@param exec CodeCompanion.Agent.Executor
+---@msg string
+local send_response_to_chat = function(exec, msg)
+  exec.agent.chat:add_tool_output(exec.tool, msg)
+end
+
 ---@class CodeCompanion.Agent.Executor
 ---@field agent CodeCompanion.Agent
 ---@field current_cmd_tool table The current cmd tool that's being executed
@@ -38,12 +47,18 @@ function Executor:setup_handlers()
     setup = function()
       _G.codecompanion_current_tool = self.tool.name
       if self.tool.handlers and self.tool.handlers.setup then
-        self.tool.handlers.setup(self.tool, self.agent)
+        return self.tool.handlers.setup(self.tool, self.agent)
       end
+    end,
+    prompt_condition = function()
+      if self.tool.handlers and self.tool.handlers.prompt_condition then
+        return self.tool.handlers.prompt_condition(self.tool, self.agent, self.agent.tools_config)
+      end
+      return true
     end,
     on_exit = function()
       if self.tool.handlers and self.tool.handlers.on_exit then
-        self.tool.handlers.on_exit(self.tool, self.agent)
+        return self.tool.handlers.on_exit(self.tool, self.agent)
       end
     end,
   }
@@ -57,16 +72,30 @@ function Executor:setup_handlers()
     rejected = function(cmd)
       if self.tool.output and self.tool.output.rejected then
         self.tool.output.rejected(self.tool, self.agent, cmd)
+      else
+        -- If no handler is set then return a default message
+        send_response_to_chat(self, fmt("User rejected `%s`", self.tool.name))
       end
     end,
     error = function(cmd)
       if self.tool.output and self.tool.output.error then
         self.tool.output.error(self.tool, self.agent, cmd, self.agent.stderr, self.agent.stdout or {})
+      else
+        send_response_to_chat(self, fmt("Error calling `%s`", self.tool.name))
+      end
+    end,
+    cancelled = function(cmd)
+      if self.tool.output and self.tool.output.cancelled then
+        self.tool.output.cancelled(self.tool, self.agent, cmd)
+      else
+        send_response_to_chat(self, fmt("Cancelled `%s`", self.tool.name))
       end
     end,
     success = function(cmd)
       if self.tool.output and self.tool.output.success then
         self.tool.output.success(self.tool, self.agent, cmd, self.agent.stdout)
+      else
+        send_response_to_chat(self, fmt("Executed `%s`", self.tool.name))
       end
     end,
   }
@@ -89,7 +118,7 @@ function Executor:setup(input)
   end
   if self.agent.status == self.agent.constants.STATUS_ERROR then
     log:debug("Executor:execute - Error")
-    return finalize_agent(self)
+    self:close()
   end
 
   -- Get the next tool to run
@@ -104,42 +133,59 @@ function Executor:setup(input)
   log:debug("Executor:execute - `%s` tool", self.tool.name)
 
   -- Check if the tool requires approval
-  if self.tool.opts and self.tool.opts.requires_approval and not vim.g.codecompanion_auto_tool_mode then
-    log:debug("Executor:execute - Asking for approval")
+  if self.tool.opts and not vim.g.codecompanion_auto_tool_mode then
+    local requires_approval = self.tool.opts.requires_approval
 
-    local prompt = self.output.prompt()
-    if prompt == nil or prompt == "" then
-      prompt = ("Run the %q tool?"):format(self.tool.name)
+    -- Users can set this to be a function if necessary
+    if requires_approval and type(requires_approval) == "function" then
+      requires_approval = requires_approval(self.tool, self.agent)
     end
 
-    vim.ui.select({ "Yes", "No", "Cancel" }, {
-      prompt = prompt,
-      format_item = function(item)
-        if item == "Yes" then
-          return "Yes"
-        elseif item == "No" then
-          return "No"
-        else
-          return "Cancel"
-        end
-      end,
-    }, function(choice)
-      if not choice or choice == "Cancel" then -- No selection or cancelled
-        log:debug("Executor:execute - Tool cancelled")
-        finalize_agent(self)
-        self:close()
-        return
-      elseif choice == "Yes" then -- Selected yes
-        log:debug("Executor:execute - Tool approved")
-        self:execute(cmd, input)
-      elseif choice == "No" then -- Selected no
-        log:debug("Executor:execute - Tool rejected")
-        self.output.rejected(cmd)
-        self:setup()
+    -- Anything that isn't a boolean will get evaluated with a prompt condition
+    if requires_approval and type(requires_approval) ~= "boolean" then
+      requires_approval = self.handlers.prompt_condition()
+    end
+
+    if requires_approval then
+      log:debug("Executor:execute - Asking for approval")
+
+      local prompt = self.output.prompt()
+      if prompt == nil or prompt == "" then
+        prompt = ("Run the %q tool?"):format(self.tool.name)
       end
-    end)
+
+      vim.ui.select({ "Yes", "No", "Cancel" }, {
+        kind = "codecompanion.nvim",
+        prompt = prompt,
+        format_item = function(item)
+          if item == "Yes" then
+            return "Yes"
+          elseif item == "No" then
+            return "No"
+          else
+            return "Cancel"
+          end
+        end,
+      }, function(choice)
+        if not choice or choice == "Cancel" then -- No selection or cancelled
+          log:debug("Executor:execute - Tool cancelled")
+          self:close()
+          self.output.cancelled(cmd)
+          return self:setup()
+        elseif choice == "Yes" then -- Selected yes
+          log:debug("Executor:execute - Tool approved")
+          self:execute(cmd, input)
+        elseif choice == "No" then -- Selected no
+          log:debug("Executor:execute - Tool rejected")
+          self.output.rejected(cmd)
+          self:setup()
+        end
+      end)
+    else
+      return self:execute(cmd, input)
+    end
   else
-    self:execute(cmd, input)
+    return self:execute(cmd, input)
   end
 end
 
@@ -167,8 +213,7 @@ function Executor:error(action, error)
     log:warn("Tool %s: %s", self.tool.name, error)
   end
   self.output.error(action)
-  finalize_agent(self)
-  self:close()
+  self:setup()
 end
 
 ---Handle a successful completion of a tool
@@ -187,15 +232,14 @@ end
 ---Close the execution of the tool
 ---@return nil
 function Executor:close()
-  local chat = self.agent.chat
-  log:debug("Executor:close")
-  self.handlers.on_exit()
-  util.fire("ToolFinished", { id = self.id, name = self.tool.name, bufnr = self.agent.bufnr })
-
-  vim.schedule(function()
-    chat.subscribers:process(chat)
-    _G.codecompanion_current_tool = nil -- This must come last
-  end)
+  --TODO: This is a workaround that avoids the close method being called more than once
+  if self.tool then
+    log:debug("Executor:close")
+    self.handlers.on_exit()
+    util.fire("ToolFinished", { id = self.id, name = self.tool.name, bufnr = self.agent.bufnr })
+    self.tool = nil
+    self.current_cmd_tool = {}
+  end
 end
 
 return Executor

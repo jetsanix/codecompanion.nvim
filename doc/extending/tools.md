@@ -85,7 +85,7 @@ When a tool is detected, the chat buffer sends any output to the `agents/init.lu
 There are two types of tools that CodeCompanion can leverage:
 
 1. **Command-based**: These tools can execute a series of commands in the background using a [plenary.job](https://github.com/nvim-lua/plenary.nvim/blob/master/lua/plenary/job.lua). They're non-blocking, meaning you can carry out other activities in Neovim whilst they run. Useful for heavy/time-consuming tasks.
-2. **Function-based**: These tools, like [@editor](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/strategies/chat/tools/editor.lua), execute Lua functions directly in Neovim within the main process, one after another.
+2. **Function-based**: These tools, like [insert_edit_into_file](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/strategies/chat/agents/tools/insert_edit_into_file.lua), execute Lua functions directly in Neovim within the main process, one after another.
 
 For the purposes of this section of the guide, we'll be building a simple function-based calculator tool that an LLM can use to do basic maths.
 
@@ -163,7 +163,7 @@ end,
 ```
 
 > [!IMPORTANT]
-> Using the `handlers.setup()` function, it's also possible to create commands dynamically like in the [@cmd_runner](/usage/chat-buffer/agents.html#cmd-runner) tool.
+> Using the `handlers.setup()` function, it's also possible to create commands dynamically like in the [cmd_runner](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/strategies/chat/agents/tools/cmd_runner.lua) tool.
 
 **Function-based Tools**
 
@@ -322,6 +322,7 @@ The _handlers_ table contains two functions that are executed before and after a
 
 1. `setup` - Is called **before** anything in the [cmds](/extending/tools.html#cmds) and [output](/extending/tools.html#output) table. This is useful if you wish to set the cmds dynamically on the tool itself, like in the [@cmd_runner](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/strategies/chat/agents/tools/cmd_runner.lua) tool.
 2. `on_exit` - Is called **after** everything in the [cmds](/extending/tools.html#cmds) and [output](/extending/tools.html#output) table.
+3. `prompt_condition` - Is called **before** anything in the [cmds](/extending/tools.html#cmds) and [output](/extending/tools.html#output) table and is used to determine _if_ the user should be prompted for approval. This is used in the `@insert_edit_into_file` tool to allow users to determine if they'd like to apply an approval to _buffer_ or _file_ edits.
 
 For the purposes of our calculator, let's just return some notifications so you can see the agent and tool flow:
 
@@ -536,7 +537,7 @@ require("codecompanion").setup({
 and with the prompt:
 
 ```
-Use the @calculator tool for 100*50
+Use the @{calculator} tool for 100*50
 ```
 
 You should see: `5000`, in the chat buffer.
@@ -565,6 +566,9 @@ require("codecompanion").setup({
 })
 ```
 
+> [!NOTE]
+> `opts.requires_approval` can also be a function that receives the tool and agent classes as parameters
+
 To account for the user being prompted for an approval, we can add a `output.prompt` to the tool:
 
 ```lua
@@ -586,7 +590,7 @@ output = {
 
 This will notify the user with the message: `Perform the calculation 100 multiply 50?`. The user can choose to proceed, reject or cancel. The latter will cancel any tools from running.
 
-You can also customize the output if a user rejects the approval:
+You can also customize the output if a user rejects the approval or cancels the tool execution:
 
 ```lua
 output = {
@@ -599,6 +603,15 @@ output = {
   ---@return nil
   rejected = function(self, agent, cmd)
     agent.chat:add_tool_output(self, "The user declined to run the calculator tool")
+  end,
+
+  ---Cancellation message back to the LLM
+  ---@param self CodeCompanion.Tool.Calculator
+  ---@param agent CodeCompanion.Agent
+  ---@param cmd table
+  ---@return nil
+  cancelled = function(self, agent, cmd)
+    agent.chat:add_tool_output(self, "The user cancelled the execution of the calculator tool")
   end,
 },
 ```

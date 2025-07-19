@@ -1,5 +1,6 @@
 local config = require("codecompanion.config")
 local log = require("codecompanion.utils.log")
+local regex = require("codecompanion.utils.regex")
 
 local CONSTANTS = {
   PREFIX = "#",
@@ -10,14 +11,12 @@ local CONSTANTS = {
 ---@param var string
 ---@return string|nil
 local function find_params(message, var)
-  local pattern = CONSTANTS.PREFIX .. var .. "{([^}]+)}"
-
+  local pattern = CONSTANTS.PREFIX .. "{" .. var .. "}{([^}]*)}"
   local params = message.content:match(pattern)
   if params then
     log:trace("Params found for variable: %s", params)
     return params
   end
-
   return nil
 end
 
@@ -36,7 +35,7 @@ local function resolve(chat, var_config, params)
     local init = {
       Chat = chat,
       config = var_config,
-      params = params,
+      params = params or (var_config.opts and var_config.opts.default_params),
     }
 
     -- User is using a custom callback
@@ -69,6 +68,14 @@ function Variables.new()
   return self
 end
 
+---Creates a regex pattern to match a variable in a message
+---@param var string The variable name to create a pattern for
+---@param include_params? boolean Whether to include parameters in the pattern
+---@return string The compiled regex pattern
+function Variables:_pattern(var, include_params)
+  return CONSTANTS.PREFIX .. "{" .. var .. "}" .. (include_params and "{[^}]*}" or "")
+end
+
 ---Check a message for a variable
 ---@param message table
 ---@return table|nil
@@ -79,7 +86,7 @@ function Variables:find(message)
 
   local found = {}
   for var, _ in pairs(self.vars) do
-    if message.content:match("%f[%w" .. CONSTANTS.PREFIX .. "]" .. CONSTANTS.PREFIX .. var .. "%f[%W]") then
+    if regex.find(message.content, self:_pattern(var)) then
       table.insert(found, var)
     end
   end
@@ -136,7 +143,8 @@ function Variables:replace(message, bufnr)
     if var:match("^buffer") then
       message = require("codecompanion.strategies.chat.variables.buffer").replace(CONSTANTS.PREFIX, message, bufnr)
     else
-      message = vim.trim(message:gsub(CONSTANTS.PREFIX .. var, ""))
+      message = regex.replace(message, self:_pattern(var, true), "")
+      message = vim.trim(regex.replace(message, self:_pattern(var), ""))
     end
   end
   return message

@@ -8,7 +8,7 @@ Please see the author's own [config](https://github.com/olimorris/dotfiles/blob/
 ## Configuring an Adapter
 
 > [!NOTE]
-> The adapters that the plugin supports out of the box can be found [here](https://github.com/olimorris/codecompanion.nvim/tree/main/lua/codecompanion/adapters). Or, see the user contributed adapters [here](configuration/adapters.html#user-contributed-adapters)
+> The adapters that the plugin supports out of the box can be found [here](https://github.com/olimorris/codecompanion.nvim/tree/main/lua/codecompanion/adapters). Or, see the user contributed adapters [here](configuration/adapters.html#community-adapters)
 
 An adapter is what connects Neovim to an LLM. It's the interface that allows data to be sent, received and processed. In order to use the plugin, you need to make sure you've configured an adapter first:
 
@@ -25,7 +25,7 @@ require("codecompanion").setup({
 }),
 ```
 
-In the example above, we're using the Anthropic adapter for both the chat and inline strategies.
+In the example above, we're using the Anthropic adapter for both the chat and inline strategies. Refer to the [adapter](configuration/adapters#changing-a-model) section to understand how to change the default model.
 
 Because most LLMs require an API key you'll need to share that with the adapter. By default, adapters will look in your environment for a `*_API_KEY` where `*` is the name of the adapter such as `ANTHROPIC` or `OPENAI`. However, you can extend the adapter and change the API key like so:
 
@@ -74,24 +74,31 @@ Run `:CodeCompanionChat` to open a chat buffer. Type your prompt and send it by 
 
 You can add context from your code base by using _Variables_ and _Slash Commands_ in the chat buffer.
 
+> [!IMPORTANT]
+> As of `v17.5.0`, variables and tools are now wrapped in curly braces, such as `#{buffer}` or `@{files}`
+
 ### Variables
 
 _Variables_, accessed via `#`, contain data about the present state of Neovim:
 
-- `#buffer` - Shares the current buffer's code. This can also receive [parameters](usage/chat-buffer/variables#buffer)
-- `#lsp` - Shares LSP information and code for the current buffer
-- `#viewport` - Shares the buffers and lines that you see in the Neovim viewport
+- `buffer` - Shares the current buffer's code. This can also receive [parameters](usage/chat-buffer/variables#buffer)
+- `lsp` - Shares LSP information and code for the current buffer
+- `viewport` - Shares the buffers and lines that you see in the Neovim viewport
+
+> [!TIP]
+> Use them in your prompt like: `What does the code in #{buffer} do?`, ensuring they're wrapped in curly brackets
 
 ### Slash Commands
 
 > [!IMPORTANT]
-> These have been designed to work with native Neovim completions alongside nvim-cmp and blink.cmp. To open the native completion menu use `<C-_>` in insert mode when in the chat buffer.
+> These have been designed to work with native Neovim completions alongside nvim-cmp and blink.cmp. To open the native completion menu use `<C-_>` in insert mode when in the chat buffer. Note: Slash commands should also work with coc.nvim.
 
 _Slash commands_, accessed via `/`, run commands to insert additional context into the chat buffer:
 
 - `/buffer` - Insert open buffers
 - `/fetch` - Insert URL contents
 - `/file` - Insert a file
+- `/quickfix` - Insert entries from the quickfix list
 - `/help` - Insert content from help tags
 - `/now` - Insert the current date and time
 - `/symbols` - Insert symbols from a selected file
@@ -101,13 +108,22 @@ _Slash commands_, accessed via `/`, run commands to insert additional context in
 
 _Tools_, accessed via `@`, allow the LLM to function as an agent and carry out actions:
 
-- `@cmd_runner` - The LLM will run shell commands (subject to approval)
-- `@editor` - The LLM will edit code in a Neovim buffer
-- `@files` -  The LLM will can work with files on the file system (subject to approval)
+- `cmd_runner` - The LLM will run shell commands (subject to approval)
+- `create_file` - The LLM will create a file in the current working directory (subject to approval)
+- `file_search` - The LLM can search for a file in the CWD
+- `get_changed_files` - The LLM can get git diffs for any changed files in the CWD
+- `grep_search` - The LLM can search within files in the CWD
+- `insert_edit_into_file` - The LLM will edit code in a Neovim buffer or on the file system (subject to approval)
+- `next_edit_suggestion` - The LLM can show the user where the next edit is
+- `read_file` - The LLM can read a specific file
+- `web_search` -  The LLM can search the internet for information
 
-Tools can also be grouped together to form _Agents_, which are also accessed via `@` in the chat buffer:
+Tools can also be grouped together, also accessible via `@` in the chat buffer:
 
-- `@full_stack_dev` - Contains the `cmd_runner`, `editor` and `files` tools.
+- `files` - Contains the `create_file`, `file_search`, `get_changed_files`, `grep_search`, `insert_edit_into_file` and `read_file` tools
+
+> [!TIP]
+> Use them in your prompt like: `Can you use the @{grep_search} tool to find occurrences of "add_message"`, ensuring they're wrapped in curly brackets
 
 ## Inline Assistant
 
@@ -120,10 +136,10 @@ Tools can also be grouped together to form _Agents_, which are also accessed via
 
 The inline assistant enables an LLM to write code directly into a Neovim buffer.
 
-Run `:CodeCompanion <your prompt>` to call the inline assistant. The assistant will evaluate the prompt and either write code or open a chat buffer. You can also make a visual selection and call the assistant. To send additional context alongside your prompt, you can leverage [variables](/usage/inline-assistant#variables) such as `:CodeCompanion <var> <your prompt>`:
+Run `:CodeCompanion <your prompt>` to call the inline assistant. The assistant will evaluate the prompt and either write code or open a chat buffer. You can also make a visual selection and call the assistant. To send additional context alongside your prompt, you can leverage [variables](/usage/inline-assistant#variables) such as `:CodeCompanion #{buffer} <your prompt>`:
 
-- `#buffer` - shares the contents of the current buffer
-- `#chat` - shares the LLM's messages from the last chat buffer
+- `buffer` - shares the contents of the current buffer
+- `chat` - shares the LLM's messages from the last chat buffer
 
 For convenience, you can call prompts from the [prompt library](/configuration/prompt-library) via the cmd line, such as `:'<,'>CodeCompanion /explain`. The prompt library comes with the following defaults:
 
@@ -166,8 +182,9 @@ However, there are multiple options available:
 - `CodeCompanion /<prompt library>` - Call an item from the [prompt library](configuration/prompt-library)
 - `CodeCompanionChat <prompt>` - Send a prompt to the LLM via a chat buffer
 - `CodeCompanionChat <adapter>` - Open a chat buffer with a specific adapter
-- `CodeCompanionChat Toggle` - Toggle a chat buffer
 - `CodeCompanionChat Add` - Add visually selected chat to the current chat buffer
+- `CodeCompanionChat RefreshCache` - Used to refresh conditional elements in the chat buffer
+- `CodeCompanionChat Toggle` - Toggle a chat buffer
 
 ## Suggested Plugin Workflow
 

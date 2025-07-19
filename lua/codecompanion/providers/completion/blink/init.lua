@@ -2,10 +2,6 @@
 
 local completion = require("codecompanion.providers.completion")
 
-local slash_commands = completion.slash_commands()
-local tools = completion.tools()
-local vars = completion.variables()
-
 --- @class blink.cmp.Source
 local M = {}
 
@@ -43,7 +39,7 @@ function M:get_completions(ctx, callback)
       is_incomplete_forward = false,
       is_incomplete_backward = false,
       items = vim
-        .iter(slash_commands)
+        .iter(completion.slash_commands())
         :map(function(item)
           return {
             kind = vim.lsp.protocol.CompletionItemKind.Function,
@@ -73,13 +69,13 @@ function M:get_completions(ctx, callback)
       is_incomplete_forward = false,
       is_incomplete_backward = false,
       items = vim
-        .iter(vars)
+        .iter(completion.variables())
         :map(function(item)
           return {
             kind = vim.lsp.protocol.CompletionItemKind.Variable,
             label = item.label:sub(2),
             textEdit = {
-              newText = item.label,
+              newText = string.format("#{%s}", item.label:sub(2)),
               range = edit_range,
             },
             documentation = {
@@ -99,13 +95,13 @@ function M:get_completions(ctx, callback)
       is_incomplete_forward = false,
       is_incomplete_backward = false,
       items = vim
-        .iter(tools)
+        .iter(completion.tools())
         :map(function(item)
           return {
             kind = vim.lsp.protocol.CompletionItemKind.Struct,
             label = item.label:sub(2),
             textEdit = {
-              newText = item.label,
+              newText = string.format("@{%s}", item.label:sub(2)),
               range = edit_range,
             },
             documentation = {

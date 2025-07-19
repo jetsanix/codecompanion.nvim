@@ -11,8 +11,9 @@ local output_tokens = 0
 ---@return table The filtered message
 local function filter_out_messages(message)
   local allowed = {
-    "role",
     "content",
+    "role",
+    "reasoning",
     "tool_calls",
   }
 
@@ -35,13 +36,13 @@ return {
   features = {
     tokens = true,
     text = true,
-    vision = true,
   },
   opts = {
     cache_breakpoints = 4, -- Cache up to this many messages
     cache_over = 300, -- Cache any message which has this many tokens or more
     stream = true,
     tools = true,
+    vision = true,
   },
   url = "https://api.anthropic.com/v1/messages",
   env = {
@@ -67,6 +68,9 @@ return {
       local model_opts = self.schema.model.choices[model]
       if model_opts and model_opts.opts then
         self.opts = vim.tbl_deep_extend("force", self.opts, model_opts.opts)
+        if not model_opts.opts.has_vision then
+          self.opts.vision = false
+        end
       end
 
       -- Add the extended output header if enabled
@@ -102,7 +106,7 @@ return {
       return params
     end,
 
-    ---Set the format of the role and content for the messages from the chat buffer
+    ---Set the format of the role and content for the messages that are sent from the chat buffer to the LLM
     ---@param self CodeCompanion.Adapter
     ---@param messages table Format is: { { role = "user", content = "Your prompt here" } }
     ---@return table
@@ -133,37 +137,56 @@ return {
         end)
         :totable()
 
-      -- 3–6. Clean up, role‐convert, and handle tool calls in one pass
+      -- 3–7. Clean up, role‐convert, and handle tool calls in one pass
       messages = vim.tbl_map(function(message)
-        -- 3. Remove disallowed keys
+        -- 3. Account for any images
+        if message.opts and message.opts.tag == "image" and message.opts.mimetype then
+          if self.opts and self.opts.vision then
+            message.content = {
+              {
+                type = "image",
+                source = {
+                  type = "base64",
+                  media_type = message.opts.mimetype,
+                  data = message.content,
+                },
+              },
+            }
+          else
+            -- Remove the message if vision is not supported
+            return nil
+          end
+        end
+
+        -- 4. Remove disallowed keys
         message = filter_out_messages(message)
 
-        -- 4. Turn string content into { { type = "text", text } }
-        if
-          (message.role == self.roles.user or message.role == self.roles.llm)
-          and type(message.content) == "string"
-        then
+        -- 5. Turn string content into { { type = "text", text } } and add in the reasoning
+        if message.role == self.roles.user or message.role == self.roles.llm then
           -- Anthropic doesn't allow the user to submit an empty prompt. But
           -- this can be necessary to prompt the LLM to analyze any tool
           -- calls and their output
           if message.role == self.roles.user and message.content == "" then
             message.content = "<prompt></prompt>"
           end
-          message.content = {
-            { type = "text", text = message.content },
-          }
+
+          if type(message.content) == "string" then
+            message.content = {
+              { type = "text", text = message.content },
+            }
+          end
         end
 
         if message.tool_calls and vim.tbl_count(message.tool_calls) > 0 then
           has_tools = true
         end
 
-        -- 5. Treat 'tool' role as user
+        -- 6. Treat 'tool' role as user
         if message.role == "tool" then
           message.role = self.roles.user
         end
 
-        -- 6. Convert any LLM tool_calls into content blocks
+        -- 7. Convert any LLM tool_calls into content blocks
         if has_tools and message.role == self.roles.llm and message.tool_calls then
           message.content = message.content or {}
           for _, call in ipairs(message.tool_calls) do
@@ -177,35 +200,54 @@ return {
           message.tool_calls = nil
         end
 
+        -- 8. If reasoning is present, format it as a content block
+        if message.reasoning and type(message.content) == "table" then
+          -- Ref: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#how-extended-thinking-works
+          table.insert(message.content, 1, {
+            type = "thinking",
+            thinking = message.reasoning.content,
+            signature = message.reasoning._data.signature,
+          })
+        end
+
         return message
       end, messages)
 
-      -- 7. Merge consecutive messages with the same role
+      -- 9. Merge consecutive messages with the same role
       messages = utils.merge_messages(messages)
 
-      -- 8. Ensure that any consecutive tool results are merged
+      -- 10. Ensure that any consecutive tool results are merged
       if has_tools then
         for _, m in ipairs(messages) do
-          if m.role == self.roles.user and m.content then
-            local consolidated = {}
-            for _, block in ipairs(m.content) do
-              if block.type == "tool_result" then
-                local prev = consolidated[#consolidated]
-                if prev and prev.type == "tool_result" and prev.tool_use_id == block.tool_use_id then
-                  prev.content = prev.content .. block.content
+          if m.role == self.roles.user and m.content and m.content ~= "" then
+            -- Check if content is already an array of blocks
+            if type(m.content) == "table" and m.content.type then
+              -- If it's a single content block, like a tool_result), make it an array
+              m.content = { m.content }
+            end
+
+            -- Now we can iterate over the content blocks
+            if type(m.content) == "table" and vim.islist(m.content) then
+              local consolidated = {}
+              for _, block in ipairs(m.content) do
+                if block.type == "tool_result" then
+                  local prev = consolidated[#consolidated]
+                  if prev and prev.type == "tool_result" and prev.tool_use_id == block.tool_use_id then
+                    prev.content = prev.content .. block.content
+                  else
+                    table.insert(consolidated, block)
+                  end
                 else
                   table.insert(consolidated, block)
                 end
-              else
-                table.insert(consolidated, block)
               end
+              m.content = consolidated
             end
-            m.content = consolidated
           end
         end
       end
 
-      -- 9+. Cache large messages per opts.cache_over / cache_breakpoints
+      -- 11+. Cache large messages per opts.cache_over / cache_breakpoints
       local breakpoints_used = 0
       for i = #messages, 1, -1 do
         local msgs = messages[i]
@@ -235,6 +277,31 @@ return {
       end
 
       return { system = system, messages = messages }
+    end,
+
+    ---Form the reasoning output that is stored in the chat buffer
+    ---@param self CodeCompanion.Adapter
+    ---@param data table The reasoning output from the LLM
+    ---@return nil|{ content: string, _data: table }
+    form_reasoning = function(self, data)
+      local content = vim
+        .iter(data)
+        :map(function(item)
+          return item.content
+        end)
+        :filter(function(content)
+          return content ~= nil
+        end)
+        :join("")
+
+      local signature = data[#data].signature
+
+      return {
+        content = content,
+        _data = {
+          signature = signature,
+        },
+      }
     end,
 
     ---Provides the schemas of the tools that are available to the LLM to call
@@ -313,7 +380,8 @@ return {
             output.content = ""
           elseif json.type == "content_block_start" then
             if json.content_block.type == "thinking" then
-              output.reasoning = ""
+              output.reasoning = output.reasoning or {}
+              output.reasoning.content = ""
             end
             if json.content_block.type == "tool_use" and tools then
               -- Source: https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview#single-tool-example
@@ -326,7 +394,11 @@ return {
             end
           elseif json.type == "content_block_delta" then
             if json.delta.type == "thinking_delta" then
-              output.reasoning = json.delta.thinking
+              output.reasoning = output.reasoning or {}
+              output.reasoning.content = json.delta.thinking
+            elseif json.delta.type == "signature_delta" then
+              output.reasoning = output.reasoning or {}
+              output.reasoning.signature = json.delta.signature
             else
               output.content = json.delta.text
               if json.delta.partial_json and tools then
@@ -345,7 +417,8 @@ return {
               if content.type == "text" then
                 output.content = (output.content or "") .. content.text
               elseif content.type == "thinking" then
-                output.reasoning = content.text
+                output.reasoning = output.reasoning and output.reasoning or {}
+                output.reasoning.content = content.text
               elseif content.type == "tool_use" and tools then
                 table.insert(tools, {
                   _index = i,
@@ -458,12 +531,16 @@ return {
       mapping = "parameters",
       type = "enum",
       desc = "The model that will complete your prompt. See https://docs.anthropic.com/claude/docs/models-overview for additional details and options.",
-      default = "claude-3-7-sonnet-20250219",
+      default = "claude-sonnet-4-20250514",
       choices = {
-        ["claude-3-7-sonnet-20250219"] = { opts = { can_reason = true, has_token_efficient_tools = true } },
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229",
+        ["claude-opus-4-20250514"] = { opts = { can_reason = true, has_vision = true } },
+        ["claude-sonnet-4-20250514"] = { opts = { can_reason = true, has_vision = true } },
+        ["claude-3-7-sonnet-20250219"] = {
+          opts = { can_reason = true, has_vision = true, has_token_efficient_tools = true },
+        },
+        ["claude-3-5-sonnet-20241022"] = { opts = { has_vision = true } },
+        ["claude-3-5-haiku-20241022"] = { opts = { has_vision = true } },
+        ["claude-3-opus-20240229"] = { opts = { has_vision = true } },
         "claude-2.1",
       },
     },

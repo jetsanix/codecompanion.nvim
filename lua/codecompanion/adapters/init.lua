@@ -21,15 +21,17 @@ local log = require("codecompanion.utils.log")
 ---@field handlers.set_body? fun(self: CodeCompanion.Adapter, data: table): table|nil
 ---@field handlers.form_parameters fun(self: CodeCompanion.Adapter, params: table, messages: table): table
 ---@field handlers.form_messages fun(self: CodeCompanion.Adapter, messages: table): table
----@field handlers.form_tools fun(self: CodeCompanion.Adapter, tools: table): table
+---@field handlers.form_reasoning? fun(self: CodeCompanion.Adapter, messages: table): nil|{ content: string, _data: table }
+---@field handlers.form_tools? fun(self: CodeCompanion.Adapter, tools: table): table
 ---@field handlers.tokens? fun(self: CodeCompanion.Adapter, data: table): number|nil
 ---@field handlers.chat_output fun(self: CodeCompanion.Adapter, data: table, tools: table): table|nil
 ---@field handlers.inline_output fun(self: CodeCompanion.Adapter, data: table, context: table): table|nil
----@field handlers.tools.format fun(self: CodeCompanion.Adapter, tools: table): table
----@field handlers.tools.output_tool_call fun(self: CodeCompanion.Adapter, tool_call: table, output: string): table
+---@field handlers.tools.format? fun(self: CodeCompanion.Adapter, tools: table): table
+---@field handlers.tools.output_tool_call? fun(self: CodeCompanion.Adapter, tool_call: table, output: string): table
 ---@field handlers.on_exit? fun(self: CodeCompanion.Adapter, data: table): table|nil
 ---@field handlers.teardown? fun(self: CodeCompanion.Adapter): any
 ---@field schema table Set of parameters for the generative AI service that the user can customise in the chat buffer
+---@field methods table Methods that the adapter can perform e.g. for Slash Commands
 
 ---Check if a variable starts with "cmd:"
 ---@param var string
@@ -268,6 +270,7 @@ end
 function Adapter.extend(adapter, opts)
   local ok
   local adapter_config
+  opts = opts or {}
 
   if type(adapter) == "string" then
     ok, adapter_config = pcall(require, "codecompanion.adapters." .. adapter)
@@ -314,19 +317,73 @@ end
 
 ---Resolve an adapter from deep within the plugin...somewhere
 ---@param adapter? CodeCompanion.Adapter|string|function
+---@param opts? table
 ---@return CodeCompanion.Adapter
-function Adapter.resolve(adapter)
-  adapter = adapter or config.adapters[config.strategies.chat.adapter]
+function Adapter.resolve(adapter, opts)
+  adapter = adapter or config.strategies.chat.adapter
+  opts = opts or {}
 
   if type(adapter) == "table" then
+    if adapter.name and adapter.schema and Adapter.resolved(adapter) then
+      log:trace("[Adapter] Returning existing resolved adapter: %s", adapter.name)
+      return Adapter.set_model(adapter)
+    elseif adapter.name and adapter.model then
+      log:trace("[Adapter] Table adapter: %s", adapter.name)
+      local model_name = type(adapter.model) == "table" and adapter.model.name or adapter.model
+      return Adapter.resolve(adapter.name, { model = model_name })
+    end
     adapter = Adapter.new(adapter)
   elseif type(adapter) == "string" then
-    adapter = Adapter.extend(adapter)
+    log:trace("[Adapter] Loading adapter: %s%s", adapter, opts.model and (" with model: " .. opts.model) or "")
+    opts = vim.tbl_deep_extend("force", opts, { name = adapter })
+    if opts.model then
+      opts = vim.tbl_deep_extend("force", opts, {
+        schema = {
+          model = {
+            default = opts.model,
+          },
+        },
+      })
+    end
+
+    adapter = Adapter.extend(config.adapters[adapter] or adapter, opts)
   elseif type(adapter) == "function" then
     adapter = adapter()
   end
 
   return adapter.set_model(adapter)
+end
+
+---Check if an adapter has already been resolved
+---@param adapter CodeCompanion.Adapter|string|function|nil
+---@return boolean
+function Adapter.resolved(adapter)
+  if adapter and getmetatable(adapter) and getmetatable(adapter).__index == Adapter then
+    return true
+  end
+  return false
+end
+
+---Get an adapter from a string path
+---@param adapter_str string
+---@return CodeCompanion.Adapter|nil
+function Adapter.get_from_string(adapter_str)
+  local ok, adapter = pcall(require, "codecompanion.adapters." .. adapter_str)
+  local err
+  if not ok then
+    adapter, err = loadfile(adapter_str)
+  end
+  if err then
+    return nil
+  end
+
+  adapter = Adapter.resolve(adapter)
+
+  if not adapter then
+    return nil
+  end
+
+  return adapter
 end
 
 ---Make an adapter safe for serialization

@@ -7,9 +7,7 @@ local child = MiniTest.new_child_neovim()
 local T = new_set({
   hooks = {
     pre_case = function()
-      child.restart({ "-u", "scripts/minimal_init.lua" })
-      child.o.statusline = ""
-      child.o.laststatus = 0
+      h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
         chat, agent = h.setup_chat_buffer()
@@ -26,7 +24,7 @@ local T = new_set({
 
 T["cmd_runner tool"] = function()
   child.lua([[
-    --require("tests.log")
+    require("tests.log")
     local tool = {
       {
         ["function"] = {

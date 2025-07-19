@@ -11,11 +11,11 @@ return {
   opts = {
     stream = true,
     tools = true,
+    vision = false,
   },
   features = {
     text = true,
     tokens = true,
-    vision = false,
   },
   url = "https://api.x.ai/v1/chat/completions",
   env = {

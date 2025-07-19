@@ -2,7 +2,7 @@
 
 > [!TIP]
 > Want to connect to an LLM that isn't supported out of the box? Check out
-> [these](#user-contributed-adapters) user contributed adapters, [create](/extending/adapters.html) your own or post in the [discussions](https://github.com/olimorris/codecompanion.nvim/discussions)
+> [these](#community-adapters) user contributed adapters, [create](/extending/adapters.html) your own or post in the [discussions](https://github.com/olimorris/codecompanion.nvim/discussions)
 
 An adapter is what connects Neovim to an LLM. It's the interface that allows data to be sent, received and processed and there are a multitude of ways to customize them.
 
@@ -65,6 +65,42 @@ require("codecompanion").setup({
 
 Environment variables can also be functions and as a parameter, they receive a copy of the adapter itself.
 
+## Changing a Model
+
+To more easily change a model associated with a strategy you can pass in the `name` and `model` to the adapter:
+
+```lua
+require("codecompanion").setup({
+  strategies = {
+    chat = {
+      adapter = {
+        name = "copilot",
+        model = "claude-sonnet-4-20250514",
+      },
+    },
+  },
+}),
+
+```
+
+To change the default model on an adapter you can modify the `schema.model.default` property:
+
+```lua
+require("codecompanion").setup({
+  adapters = {
+    openai = function()
+      return require("codecompanion.adapters").extend("openai", {
+        schema = {
+          model = {
+            default = "gpt-4.1",
+          },
+        },
+      })
+    end,
+  },
+}),
+```
+
 ## Configuring Adapter Settings
 
 LLMs have many settings such as model, temperature and max_tokens. In an adapter, these sit within a schema table and can be configured during setup:
@@ -72,19 +108,34 @@ LLMs have many settings such as model, temperature and max_tokens. In an adapter
 ```lua
 require("codecompanion").setup({
   adapters = {
-    llama3 = function()
+    qwen3 = function()
       return require("codecompanion.adapters").extend("ollama", {
-        name = "llama3", -- Give this adapter a different name to differentiate it from the default ollama adapter
+        name = "qwen3", -- Give this adapter a different name to differentiate it from the default ollama adapter
+        opts = {
+          vision = true,
+          stream = true,
+        },
         schema = {
           model = {
-            default = "llama3:latest",
+            default = "qwen3:latest",
           },
           num_ctx = {
             default = 16384,
           },
-          num_predict = {
-            default = -1,
+          think = {
+            default = false,
+            -- or, if you want to automatically turn on `think` for certain models:
+            default = function(adapter)
+              -- this'll set `think` to true if the model name contain `qwen3` or `deepseek-r1`
+              local model_name = adapter.model.name:lower()
+              return vim.iter({ "qwen3", "deepseek-r1" }):any(function(kw)
+                return string.find(model_name, kw) ~= nil
+              end)
+            end,
           },
+          keep_alive = {
+            default = '5m',
+          }
         },
       })
     end,
@@ -120,26 +171,6 @@ require("codecompanion").setup({
       allow_insecure = true,
       proxy = "socks5://127.0.0.1:9999",
     },
-  },
-}),
-```
-
-## Changing a Model
-
-Many adapters allow model selection via the `schema.model.default` property:
-
-```lua
-require("codecompanion").setup({
-  adapters = {
-    openai = function()
-      return require("codecompanion.adapters").extend("openai", {
-        schema = {
-          model = {
-            default = "gpt-4",
-          },
-        },
-      })
-    end,
   },
 }),
 ```

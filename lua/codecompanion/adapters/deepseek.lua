@@ -13,11 +13,11 @@ return {
   opts = {
     stream = true,
     tools = true,
+    vision = false,
   },
   features = {
     text = true,
     tokens = true,
-    vision = true,
   },
   url = "https://api.deepseek.com/chat/completions",
   env = {
@@ -94,9 +94,11 @@ return {
 
           if delta then
             output.role = delta.role
-            output.reasoning = delta.reasoning_content
-            if delta.content then
-              output.content = (output.content or "") .. delta.content
+            output.content = delta.content
+
+            if delta.reasoning_content then
+              output.reasoning = output.reasoning or {}
+              output.reasoning.content = delta.reasoning_content
             end
 
             -- Process tools
