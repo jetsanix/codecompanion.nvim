@@ -92,8 +92,9 @@ return {
       mapping = "parameters",
       type = "enum",
       desc = "See https://docs.x.ai/docs/models for additional details and options.",
-      default = "grok-3",
+      default = "grok-4-0709",
       choices = {
+        "grok-4-0709",
         "grok-3",
         "grok-3-mini",
         "grok-3-fast",
