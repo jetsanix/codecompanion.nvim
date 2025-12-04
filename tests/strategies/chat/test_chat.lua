@@ -12,8 +12,8 @@ T = new_set({
       child.lua([[
         codecompanion = require("codecompanion")
         h = require('tests.helpers')
-        _G.chat, _G.agent = h.setup_chat_buffer()
-        ]])
+        _G.chat, _G.tools = h.setup_chat_buffer()
+      ]])
     end,
     post_case = function()
       child.lua([[h.teardown_chat_buffer()]])
@@ -36,7 +36,7 @@ T["Chat"]["buffer variables are handled"] = function()
     -- Get the existing chat object
     local chat = _G.chat
 
-    -- Add a new message with a variable reference
+    -- Add a new message with a variable context
     table.insert(chat.messages, { role = "user", content = "#{foo} what does this file do?" })
 
     -- Get the message we just added
@@ -44,13 +44,13 @@ T["Chat"]["buffer variables are handled"] = function()
 
     -- Parse and replace variables in the message
     if chat.variables:parse(chat, message) then
-      message.content = chat.variables:replace(message.content, chat.context.bufnr)
+      message.content = chat.variables:replace(message.content, chat.buffer_context.bufnr)
     end
 
     -- Extract the properties we need to test into simple data types
     _G.last_message_content = chat.messages[#chat.messages].content
     _G.last_message_visible = chat.messages[#chat.messages].opts.visible
-    _G.last_message_tag = chat.messages[#chat.messages].opts.tag
+    _G.last_message_tag = chat.messages[#chat.messages]._meta.tag
   ]])
 
   -- Retrieve the simple values from the child process
@@ -116,7 +116,8 @@ T["Chat"]["prompt decorator is applied prior to sending to the LLM"] = function(
 end
 
 T["Chat"]["images are replaced in text and base64 encoded"] = function()
-  local prompt = string.format("What does this [Image](%s) do?", vim.fn.getcwd() .. "/tests/stubs/logo.png")
+  local prompt =
+    string.format("What does this [Image](%s) do?", vim.fs.normalize(vim.fn.getcwd()) .. "/tests/stubs/logo.png")
   local message = child.lua(string.format(
     [[
       _G.chat:add_buf_message({
@@ -132,21 +133,27 @@ T["Chat"]["images are replaced in text and base64 encoded"] = function()
 
   h.eq("What does this image do?", message)
 
-  if vim.fn.executable("base64") == 0 then
-    MiniTest.skip("base64 is not installed, skipping test")
-  end
-
   message = child.lua([[
     local messages = _G.chat.messages
     return messages[#messages]
   ]])
 
   h.eq({
-    mimetype = "image/png",
-    reference = string.format("<image>%s/tests/stubs/logo.png</image>", vim.fn.getcwd()),
-    tag = "image",
     visible = false,
   }, message.opts)
+
+  h.eq({
+    cycle = 1,
+    index = message._meta.index,
+    id = message._meta.id,
+    tag = "image",
+  }, message._meta)
+
+  h.eq({
+    id = string.format("<image>%s/tests/stubs/logo.png</image>", vim.fs.normalize(vim.fn.getcwd())),
+    mimetype = "image/png",
+    path = string.format("%s/tests/stubs/logo.png", vim.fs.normalize(vim.fn.getcwd())),
+  }, message.context)
 
   h.expect_starts_with("iVBORw0KGgoAAAANSUhEU", message.content)
 end
@@ -171,10 +178,11 @@ T["Chat"]["can bring up keymap options in the chat buffer"] = function()
 end
 
 T["Chat"]["can load default tools"] = function()
-  local refs = child.lua([[
+  local ctx = child.lua([[
     codecompanion = require("codecompanion")
     h = require('tests.helpers')
-    _G.chat, _G.agent = h.setup_chat_buffer({
+
+    _G.chat, _G.tools = h.setup_chat_buffer({
       strategies = {
         chat = {
           tools = {
@@ -186,17 +194,87 @@ T["Chat"]["can load default tools"] = function()
       }
     })
 
-    return _G.chat.refs
+    return _G.chat.context_items
   ]])
   h.eq(
     { "<tool>weather</tool>", "<group>tool_group</group>", "<tool>func</tool>", "<tool>cmd</tool>" },
     vim
-      .iter(refs)
+      .iter(ctx)
       :map(function(item)
         return item.id
       end)
       :totable()
   )
+end
+
+T["Chat"]["ftplugin window options override plugin defaults"] = function()
+  -- This test verifies that user's after/ftplugin/codecompanion.lua can override
+  -- the plugin's default window options. This ensures setting filetype
+  -- after window options is working correctly.
+  local child_test = MiniTest.new_child_neovim()
+  h.child_start(child_test)
+
+  child_test.lua([[
+    -- Create a temporary directory for our test ftplugin
+    local temp_dir = vim.fn.tempname()
+    vim.fn.mkdir(temp_dir .. "/after/ftplugin", "p")
+
+    -- Write a test ftplugin that sets custom window options
+    -- These intentionally differ from plugin defaults to verify override behavior
+    local ftplugin_lines = {
+      "vim.wo.wrap = false",
+      "vim.wo.number = true",
+      "vim.wo.relativenumber = true",
+    }
+    local ftplugin_path = temp_dir .. "/after/ftplugin/codecompanion.lua"
+    vim.fn.writefile(ftplugin_lines, ftplugin_path)
+
+    -- Store paths for cleanup
+    _G.test_temp_dir = temp_dir
+    _G.test_ftplugin_path = ftplugin_path
+
+    h = require('tests.helpers')
+
+    -- Setup codecompanion
+    local codecompanion = h.setup_plugin()
+    codecompanion.setup()
+    codecompanion.chat()
+
+    -- Manually source the ftplugin file to simulate user's after/ftplugin
+    -- This is needed because Neovim won't automatically re-source ftplugin
+    -- files for filetypes that have already been seen in the test environment
+    vim.cmd("source " .. vim.fn.fnameescape(ftplugin_path))
+
+    -- Get the current window options
+    local winnr = vim.api.nvim_get_current_win()
+    local bufnr = vim.api.nvim_win_get_buf(winnr)
+    _G.test_wrap = vim.wo[winnr].wrap
+    _G.test_number = vim.wo[winnr].number
+    _G.test_relativenumber = vim.wo[winnr].relativenumber
+    _G.test_filetype = vim.bo[bufnr].filetype
+  ]])
+
+  -- Retrieve the window option values
+  local wrap = child_test.lua_get([[_G.test_wrap]])
+  local number = child_test.lua_get([[_G.test_number]])
+  local relativenumber = child_test.lua_get([[_G.test_relativenumber]])
+  local filetype = child_test.lua_get([[_G.test_filetype]])
+
+  -- Verify filetype is set correctly
+  h.eq("codecompanion", filetype)
+
+  -- Assert that ftplugin settings override plugin defaults
+  -- Plugin defaults: wrap=true, number=not set, relativenumber=not set
+  -- User ftplugin sets: wrap=false, number=true, relativenumber=true
+  h.eq(false, wrap)
+  h.eq(true, number)
+  h.eq(true, relativenumber)
+
+  child_test.lua([[
+    vim.fn.delete(_G.test_temp_dir, "rf")
+  ]])
+
+  child_test.stop()
 end
 
 return T

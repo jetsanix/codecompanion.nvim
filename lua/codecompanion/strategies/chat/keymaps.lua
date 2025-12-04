@@ -2,8 +2,8 @@ local async = require("plenary.async")
 local completion = require("codecompanion.providers.completion")
 local config = require("codecompanion.config")
 local ts = require("codecompanion.utils.treesitter")
-local ui = require("codecompanion.utils.ui")
-local util = require("codecompanion.utils")
+local ui_utils = require("codecompanion.utils.ui")
+local utils = require("codecompanion.utils")
 
 local api = vim.api
 
@@ -17,10 +17,11 @@ M.options = {
       title = "Options",
       lock = true,
       window = config.display.chat.window,
+      style = "minimal",
     }
 
     if next(_cached_options) ~= nil then
-      return ui.create_float(_cached_options, float_opts)
+      return ui_utils.create_float(_cached_options, float_opts)
     end
 
     local lines = {}
@@ -80,8 +81,14 @@ M.options = {
       end
     end
 
+    -- Filter out private keymaps
+    local keymaps = {}
+    for k, v in pairs(config.strategies.chat.keymaps) do
+      if k:sub(1, 1) ~= "_" then
+        keymaps[k] = v
+      end
+    end
     -- Workout the column spacing
-    local keymaps = config.strategies.chat.keymaps
     local keymaps_max = max("description", keymaps)
 
     local vars = {}
@@ -164,7 +171,7 @@ M.options = {
 
     for key, val in sorted_pairs(vars) do
       local desc = clean_and_truncate(val.description)
-      table.insert(lines, indent .. pad("#" .. key, max_length, 4) .. " " .. desc)
+      table.insert(lines, indent .. pad("#{" .. key .. "}", max_length, 4) .. " " .. desc)
     end
 
     -- Tools
@@ -174,12 +181,12 @@ M.options = {
     for key, val in sorted_pairs(tools) do
       if key ~= "opts" then
         local desc = clean_and_truncate(val.description)
-        table.insert(lines, indent .. pad("@" .. key, max_length, 4) .. " " .. desc)
+        table.insert(lines, indent .. pad("@{" .. key .. "}", max_length, 4) .. " " .. desc)
       end
     end
 
     _cached_options = lines
-    ui.create_float(lines, float_opts)
+    ui_utils.create_float(lines, float_opts)
   end,
 }
 
@@ -207,7 +214,15 @@ M.completion = {
         -- Process each item to match the completion format
         for _, item in ipairs(items) do
           if item.label then
-            item.word = item.label
+            -- Add bracket wrapping for variables and tools like cmp/blink do
+            if item.type == "variable" then
+              item.word = string.format("#{%s}", item.label:sub(2))
+            elseif item.type == "tool" then
+              item.word = string.format("@{%s}", item.label:sub(2))
+            else
+              item.word = item.label
+            end
+
             item.abbr = item.label:sub(2)
             item.menu = item.description or item.detail
             item.icase = 1
@@ -249,7 +264,7 @@ M.completion = {
         vim.fn.complete(
           start + 1,
           vim.tbl_filter(function(item)
-            return vim.startswith(item.word:lower(), prefix:lower())
+            return vim.startswith(item.label:lower(), prefix:lower())
           end, items)
         )
       end)
@@ -279,7 +294,9 @@ M.close = {
     if vim.tbl_count(chats) == 0 then
       return
     end
-    chats[1].chat.ui:open()
+
+    local window_opts = chat.ui.window_opts or { default = true }
+    chats[1].chat.ui:open({ window_opts = window_opts })
   end,
 }
 
@@ -304,12 +321,12 @@ M.codeblock = {
     local cursor_pos = api.nvim_win_get_cursor(0)
     local line = cursor_pos[1]
 
-    local ft = chat.context.filetype or ""
+    local ft = chat.buffer_context.filetype or ""
 
     local codeblock = {
-      "```" .. ft,
+      "````" .. ft,
       "",
-      "```",
+      "````",
     }
 
     api.nvim_buf_set_lines(bufnr, line - 1, line, false, codeblock)
@@ -345,8 +362,8 @@ M.yank_code = {
   end,
 }
 
-M.pin_reference = {
-  desc = "Pin Reference",
+M.pin_context = {
+  desc = "Pin Context",
   callback = function(chat)
     local current_line = vim.api.nvim_win_get_cursor(0)[1]
     local line = vim.api.nvim_buf_get_lines(chat.bufnr, current_line - 1, current_line, true)[1]
@@ -358,8 +375,8 @@ M.pin_reference = {
     local icon = config.display.chat.icons.pinned_buffer or config.display.chat.icons.buffer_pin
     local id = line:gsub("^> %- ", "")
 
-    if not chat.references:can_be_pinned(id) then
-      return util.notify("This reference type cannot be pinned", vim.log.levels.WARN)
+    if not chat.context:can_be_pinned(id) then
+      return utils.notify("This context type cannot be pinned", vim.log.levels.WARN)
     end
 
     local filename = id
@@ -375,10 +392,10 @@ M.pin_reference = {
       or string.format("> - %s%s", icon, filename)
     api.nvim_buf_set_lines(chat.bufnr, current_line - 1, current_line, true, { new_line })
 
-    -- Update the references on the chat buffer
-    for _, ref in ipairs(chat.refs) do
-      if ref.id == id then
-        ref.opts.pinned = not ref.opts.pinned
+    -- Update the context items on the chat buffer
+    for _, item in ipairs(chat.context_items) do
+      if item.id == id then
+        item.opts.pinned = not item.opts.pinned
         break
       end
     end
@@ -397,35 +414,35 @@ M.toggle_watch = {
 
     local icons = config.display.chat.icons
     local id = line:gsub("^> %- ", "")
-    if not chat.references:can_be_watched(id) then
-      return util.notify("This reference type cannot be watched", vim.log.levels.WARN)
+    if not chat.context:can_be_watched(id) then
+      return utils.notify("This context type cannot be watched", vim.log.levels.WARN)
     end
 
-    -- Find the reference and toggle watch state
-    for _, ref in ipairs(chat.refs) do
+    -- Find the context and toggle watch state
+    for _, item in ipairs(chat.context_items) do
       local clean_id = id:gsub(icons.pinned_buffer or icons.buffer_pin, "")
         :gsub(icons.watched_buffer or icons.buffer_watch, "")
-      if ref.id == clean_id then
-        if not ref.opts then
-          ref.opts = {}
+      if item.id == clean_id then
+        if not item.opts then
+          item.opts = {}
         end
-        ref.opts.watched = not ref.opts.watched
+        item.opts.watched = not item.opts.watched
 
         -- Update the UI for just this line
         local new_line
-        if ref.opts.watched then
+        if item.opts.watched then
           -- Check if buffer is still valid before watching
-          if vim.api.nvim_buf_is_valid(ref.bufnr) and vim.api.nvim_buf_is_loaded(ref.bufnr) then
-            chat.watchers:watch(ref.bufnr)
+          if vim.api.nvim_buf_is_valid(item.bufnr) and vim.api.nvim_buf_is_loaded(item.bufnr) then
+            chat.watched_buffers:watch(item.bufnr)
             new_line = string.format("> - %s%s", icons.watched_buffer or icons.buffer_watch, clean_id)
           else
             -- Buffer is invalid, can't watch it
-            ref.opts.watched = false
+            item.opts.watched = false
             new_line = string.format("> - %s", clean_id)
-            util.notify("Cannot watch invalid or unloaded buffer " .. ref.id, vim.log.levels.WARN)
+            utils.notify("Cannot watch invalid or unloaded buffer " .. item.id, vim.log.levels.WARN)
           end
         else
-          chat.watchers:unwatch(ref.bufnr)
+          chat.watched_buffers:unwatch(item.bufnr)
           new_line = string.format("> - %s", clean_id)
         end
 
@@ -455,8 +472,10 @@ local function move_buffer(chat, direction)
 
   local codecompanion = require("codecompanion")
 
-  codecompanion.buf_get_chat(chat.bufnr).ui:hide()
-  codecompanion.buf_get_chat(next_buf).ui:open()
+  local prev_ui = codecompanion.buf_get_chat(chat.bufnr).ui
+  prev_ui:hide()
+  local window_opts = prev_ui.window_opts or { default = true }
+  codecompanion.buf_get_chat(next_buf).ui:open({ window_opts = window_opts })
 end
 
 M.next_chat = {
@@ -496,109 +515,7 @@ M.previous_header = {
 M.change_adapter = {
   desc = "Change the adapter",
   callback = function(chat)
-    if config.display.chat.show_settings then
-      return util.notify("Adapter can't be changed when `display.chat.show_settings = true`", vim.log.levels.WARN)
-    end
-
-    local function select_opts(prompt, conditional)
-      return {
-        prompt = prompt,
-        kind = "codecompanion.nvim",
-        format_item = function(item)
-          if conditional == item then
-            return "* " .. item
-          end
-          return "  " .. item
-        end,
-      }
-    end
-
-    local adapters = vim.deepcopy(config.adapters)
-    local current_adapter = chat.adapter.name
-    local current_model = vim.deepcopy(chat.adapter.schema.model.default)
-
-    local adapters_list = vim
-      .iter(adapters)
-      :filter(function(adapter)
-        return adapter ~= "opts" and adapter ~= "non_llm" and adapter ~= current_adapter
-      end)
-      :map(function(adapter, _)
-        return adapter
-      end)
-      :totable()
-
-    table.sort(adapters_list)
-    table.insert(adapters_list, 1, current_adapter)
-
-    vim.ui.select(adapters_list, select_opts("Select Adapter", current_adapter), function(selected)
-      if not selected then
-        return
-      end
-
-      if current_adapter ~= selected then
-        chat.adapter = require("codecompanion.adapters").resolve(adapters[selected])
-        util.fire(
-          "ChatAdapter",
-          { bufnr = chat.bufnr, adapter = require("codecompanion.adapters").make_safe(chat.adapter) }
-        )
-        chat.ui.adapter = chat.adapter
-        chat:apply_settings()
-      end
-
-      -- Update the system prompt
-      local system_prompt = config.opts.system_prompt
-      if type(system_prompt) == "function" then
-        if chat.messages[1] and chat.messages[1].role == "system" then
-          local opts = { adapter = chat.adapter, language = config.opts.language }
-          chat.messages[1].content = system_prompt(opts)
-        end
-      end
-
-      -- Select a model
-      local models = chat.adapter.schema.model.choices
-      if not config.adapters.opts.show_model_choices then
-        models = { chat.adapter.schema.model.default }
-      end
-      if type(models) == "function" then
-        models = models(chat.adapter)
-      end
-      if not models or vim.tbl_count(models) < 2 then
-        return
-      end
-
-      local new_model = chat.adapter.schema.model.default
-      if type(new_model) == "function" then
-        new_model = new_model(chat.adapter)
-      end
-
-      models = vim
-        .iter(models)
-        :map(function(model, value)
-          if type(model) == "string" then
-            return model
-          else
-            return value -- This is for the table entry case
-          end
-        end)
-        :filter(function(model)
-          return model ~= new_model
-        end)
-        :totable()
-      table.insert(models, 1, new_model)
-
-      vim.ui.select(models, select_opts("Select Model", new_model), function(selected)
-        if not selected then
-          return
-        end
-
-        if current_model ~= selected then
-          util.fire("ChatModel", { bufnr = chat.bufnr, model = selected })
-        end
-
-        chat:apply_model(selected)
-        chat:apply_settings()
-      end)
-    end)
+    require("codecompanion.strategies.chat.keymaps.change_adapter").callback(chat)
   end,
 }
 
@@ -632,15 +549,24 @@ M.toggle_system_prompt = {
   end,
 }
 
-M.auto_tool_mode = {
-  desc = "Toggle automatic tool mode",
+M.clear_memory = {
+  desc = "Clear memory",
   callback = function(chat)
-    if vim.g.codecompanion_auto_tool_mode then
-      vim.g.codecompanion_auto_tool_mode = nil
-      return util.notify("Disabled automatic tool mode", vim.log.levels.INFO)
+    chat:remove_tagged_message("memory")
+    chat:refresh_context()
+    return utils.notify("Cleared the memory", vim.log.levels.INFO)
+  end,
+}
+
+M.yolo_mode = {
+  desc = "Toggle YOLO mode",
+  callback = function(chat)
+    if vim.g.codecompanion_yolo_mode then
+      vim.g.codecompanion_yolo_mode = nil
+      return utils.notify("YOLO mode disabled", vim.log.levels.INFO)
     else
-      vim.g.codecompanion_auto_tool_mode = true
-      return util.notify("Enabled automatic tool mode", vim.log.levels.INFO)
+      vim.g.codecompanion_yolo_mode = true
+      return utils.notify("YOLO mode enabled", vim.log.levels.INFO)
     end
   end,
 }
@@ -693,14 +619,17 @@ M.goto_file_under_cursor = {
 M.copilot_stats = {
   desc = "Show Copilot usage statistics",
   callback = function(chat)
-    if chat.adapter.name ~= "copilot" then
-      return util.notify("Copilot stats are only available when using the Copilot adapter", vim.log.levels.WARN)
+    if not chat.adapter.show_copilot_stats then
+      return utils.notify("Stats are only available when using the Copilot adapter", vim.log.levels.WARN)
     end
-    if chat.adapter.show_copilot_stats then
-      chat.adapter.show_copilot_stats()
-    else
-      util.notify("Copilot stats function not available", vim.log.levels.ERROR)
-    end
+    chat.adapter.show_copilot_stats()
+  end,
+}
+
+M.super_diff = {
+  desc = "Show super diff buffer",
+  callback = function(chat)
+    require("codecompanion.strategies.chat.helpers.super_diff").show_super_diff(chat)
   end,
 }
 

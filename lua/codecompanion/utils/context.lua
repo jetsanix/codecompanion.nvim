@@ -2,13 +2,11 @@ local api = vim.api
 
 local M = {}
 
-local ESC_FEEDKEY = api.nvim_replace_termcodes("<ESC>", true, false, true)
-
----@param bufnr nil|integer
+---@param bufnr nil|number
 ---@return string
 M.get_filetype = function(bufnr)
   bufnr = bufnr or 0
-  local ft = api.nvim_buf_get_option(bufnr, "filetype")
+  local ft = api.nvim_get_option_value("filetype", { buf = bufnr })
 
   if ft == "cpp" then
     return "C++"
@@ -29,7 +27,7 @@ local function is_normal_mode(mode)
   return mode == "n" or mode == "no" or mode == "nov" or mode == "noV" or mode == "no"
 end
 
----@param bufnr nil|integer
+---@param bufnr nil|number
 ---@return table,number,number,number,number
 function M.get_visual_selection(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -93,7 +91,7 @@ function M.get_visual_selection(bufnr)
 end
 
 ---Get the context of the current buffer.
----@param bufnr? integer
+---@param bufnr? number
 ---@param args? table
 ---@return table
 function M.get(bufnr, args)
@@ -124,7 +122,7 @@ function M.get(bufnr, args)
     mode = mode,
     is_visual = is_visual,
     is_normal = is_normal,
-    buftype = api.nvim_buf_get_option(bufnr, "buftype") or "",
+    buftype = api.nvim_get_option_value("buftype", { buf = bufnr }) or "",
     filetype = M.get_filetype(bufnr),
     filename = api.nvim_buf_get_name(bufnr),
     cursor_pos = cursor_pos,

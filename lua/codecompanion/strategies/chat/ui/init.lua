@@ -3,10 +3,11 @@ Manages the UI for the chat buffer such as opening and closing splits/windows,
 parsing settings and rendering extmarks.
 --]]
 local config = require("codecompanion.config")
+local helpers = require("codecompanion.strategies.chat.helpers")
 local log = require("codecompanion.utils.log")
 local schema = require("codecompanion.schema")
-local ui = require("codecompanion.utils.ui")
-local util = require("codecompanion.utils")
+local ui_utils = require("codecompanion.utils.ui")
+local utils = require("codecompanion.utils")
 local yaml = require("codecompanion.utils.yaml")
 
 local api = vim.api
@@ -19,6 +20,18 @@ local CONSTANTS = {
   AUTOCMD_GROUP = "codecompanion.chat.ui",
 }
 
+---Finalize window setup by applying the options and setting the filetype. This
+---This ensures that any codecompanion specific ftplugins can run after the
+---window options are set, allowing the plugin defaults to be overridden
+---@param winnr number
+---@param bufnr number
+---@param opts table Window options to apply
+---@return nil
+local function apply_window_config(winnr, bufnr, opts)
+  ui_utils.set_win_options(winnr, opts)
+  api.nvim_set_option_value("filetype", "codecompanion", { buf = bufnr })
+end
+
 ---Set the LLM role based on the adapter
 ---@param role string|function
 ---@param adapter table
@@ -29,6 +42,29 @@ local function set_llm_role(role, adapter)
   end
   return role
 end
+
+---@class CodeCompanion.Chat.UI
+---@field adapter CodeCompanion.HTTPAdapter|CodeCompanion.ACPAdapter The adapter in use for the chat
+---@field aug number The autocmd group ID
+---@field chat_bufnr number The buffer number of the chat
+---@field chat_id number The unique ID of the chat
+---@field folds CodeCompanion.Chat.UI.Folds The folds for the chat
+---@field header_ns number The namespace for the header
+---@field roles table The roles in the chat
+---@field winnr number The window number of the chat
+---@field settings table The settings for the chat
+---@field tokens number The current token count in the chat
+---@field window_opts? table The window configuration options for the chat buffer
+
+---@class CodeCompanion.Chat.UIArgs
+---@field adapter CodeCompanion.HTTPAdapter|CodeCompanion.ACPAdapter
+---@field chat_bufnr number
+---@field chat_id number
+---@field roles table
+---@field winnr number
+---@field settings table
+---@field tokens number
+---@field window_opts? table
 
 ---@class CodeCompanion.Chat.UI
 local UI = {}
@@ -43,11 +79,14 @@ function UI.new(args)
     settings = args.settings,
     tokens = args.tokens,
     winnr = args.winnr,
+    window_opts = args.window_opts,
   }, { __index = UI })
 
   self.aug = api.nvim_create_augroup(CONSTANTS.AUTOCMD_GROUP .. ":" .. self.chat_bufnr, {
     clear = false,
   })
+  self.folds = require("codecompanion.strategies.chat.ui.folds")
+
   api.nvim_create_autocmd("InsertEnter", {
     group = self.aug,
     buffer = self.chat_bufnr,
@@ -78,7 +117,19 @@ function UI:open(opts)
     end)
   end
 
-  local window = config.display.chat.window
+  if opts.window_opts then
+    if opts.window_opts.default then
+      self.window_opts = nil
+    else
+      self.window_opts = opts.window_opts
+    end
+  end
+  local window
+  if self.window_opts then
+    window = vim.tbl_deep_extend("force", {}, config.display.chat.window, self.window_opts)
+  else
+    window = config.display.chat.window
+  end
   local width = math.floor(vim.o.columns * 0.45)
   if window.width ~= "auto" then
     width = window.width > 1 and window.width or math.floor(vim.o.columns * window.width)
@@ -98,6 +149,7 @@ function UI:open(opts)
       zindex = 45,
     }
     self.winnr = api.nvim_open_win(self.chat_bufnr, true, win_opts)
+    apply_window_config(self.winnr, self.chat_bufnr, window.opts)
   elseif window.layout == "vertical" then
     local position = window.position
     local full_height = window.full_height
@@ -124,6 +176,7 @@ function UI:open(opts)
     end
     self.winnr = api.nvim_get_current_win()
     api.nvim_win_set_buf(self.winnr, self.chat_bufnr)
+    apply_window_config(self.winnr, self.chat_bufnr, window.opts)
   elseif window.layout == "horizontal" then
     local position = window.position
     if position == nil or (position ~= "top" and position ~= "bottom") then
@@ -139,25 +192,23 @@ function UI:open(opts)
     vim.cmd("resize " .. height)
     self.winnr = api.nvim_get_current_win()
     api.nvim_win_set_buf(self.winnr, self.chat_bufnr)
+    apply_window_config(self.winnr, self.chat_bufnr, window.opts)
   else
     self.winnr = api.nvim_get_current_win()
     api.nvim_set_current_buf(self.chat_bufnr)
+    apply_window_config(self.winnr, self.chat_bufnr, window.opts)
   end
 
-  ui.set_win_options(self.winnr, window.opts)
   vim.bo[self.chat_bufnr].textwidth = 0
 
   if not opts.toggled then
     self:follow()
   end
 
-  log:trace("Chat opened with ID %d", self.chat_id)
-  util.fire("ChatOpened", { bufnr = self.chat_bufnr, id = self.chat_id })
+  self.folds:setup(self.winnr)
 
-  self.tools = require("codecompanion.strategies.chat.ui.tools").new({
-    chat_bufnr = self.chat_bufnr,
-    winnr = self.winnr,
-  })
+  log:trace("Chat opened with ID %d", self.chat_id)
+  utils.fire("ChatOpened", { bufnr = self.chat_bufnr, id = self.chat_id })
 
   return self
 end
@@ -165,14 +216,19 @@ end
 ---Hide the chat buffer from view
 ---@return nil
 function UI:hide()
-  local layout = config.display.chat.window.layout
+  local layout
+  if self.window_opts then
+    layout = vim.tbl_deep_extend("force", {}, config.display.chat.window, self.window_opts).layout
+  else
+    layout = config.display.chat.window.layout
+  end
 
   if layout == "float" or layout == "vertical" or layout == "horizontal" then
     if self:is_active() then
       vim.cmd("hide")
     else
       if not self.winnr then
-        self.winnr = ui.buf_get_win(self.chat_bufnr)
+        self.winnr = ui_utils.buf_get_win(self.chat_bufnr)
       end
       api.nvim_win_hide(self.winnr)
     end
@@ -180,7 +236,7 @@ function UI:hide()
     vim.cmd("buffer " .. vim.fn.bufnr("#"))
   end
 
-  util.fire("ChatHidden", { bufnr = self.chat_bufnr, id = self.chat_id })
+  utils.fire("ChatHidden", { bufnr = self.chat_bufnr, id = self.chat_id })
 end
 
 ---Follow the cursor in the chat buffer
@@ -245,9 +301,11 @@ end
 ---Render the settings and any messages in the chat buffer
 ---@param context table
 ---@param messages table
----@param opts table
+---@param opts {force_header?: boolean, stop_context_insertion?: boolean}
 ---@return self
 function UI:render(context, messages, opts)
+  opts = vim.tbl_extend("keep", opts or {}, { force_header = false, stop_context_insertion = false })
+
   local lines = {}
 
   local function spacer()
@@ -275,7 +333,7 @@ function UI:render(context, messages, opts)
           self:set_header(lines, set_llm_role(self.roles.llm, self.adapter))
         end
 
-        if msg.opts and msg.opts.tag == "tool_output" then
+        if msg._meta and msg._meta.tag == "tool_output" then
           table.insert(lines, "")
         end
 
@@ -295,7 +353,7 @@ function UI:render(context, messages, opts)
     end
   end
 
-  if config.display.chat.show_settings then
+  if config.display.chat.show_settings and self.adapter.type == "http" then
     log:trace("Showing chat settings")
     lines = { "---" }
     local keys = schema.get_ordered_keys(self.adapter)
@@ -311,7 +369,10 @@ function UI:render(context, messages, opts)
     spacer()
   end
 
-  if vim.tbl_isempty(messages) then
+  -- NOTE: Typically, we wouldn't want to render a header if there are existing
+  -- messages. However, provide an option to force the header to be rendered
+  -- for scenarios where there is no user prompt
+  if opts.force_header or (vim.tbl_isempty(messages) or not helpers.has_user_messages(messages)) then
     log:trace("Setting the header for the chat buffer")
     self:set_header(lines, self.roles.user)
     spacer()
@@ -371,14 +432,15 @@ function UI:render_headers()
 end
 
 ---Set the welcome message in the chat buffer
+---@param message string The intro message to display
 ---@return CodeCompanion.Chat.UI|nil
-function UI:set_intro_msg()
+function UI:set_intro_msg(message)
   if self.intro_message then
     return self
   end
 
   if not config.display.chat.start_in_insert_mode then
-    local extmark_id = self:set_virtual_text(config.display.chat.intro_message, "eol")
+    local extmark_id = self:set_virtual_text(message, "eol")
     api.nvim_create_autocmd("InsertEnter", {
       buffer = self.chat_bufnr,
       callback = function()
@@ -413,7 +475,7 @@ function UI:clear_virtual_text(extmark_id)
 end
 
 ---Get the last line, column and line count in the chat buffer
----@return integer, integer, integer
+---@return number, integer, integer
 function UI:last()
   local line_count = api.nvim_buf_line_count(self.chat_bufnr)
 
@@ -434,7 +496,7 @@ end
 
 ---Display the tokens in the chat buffer
 ---@param parser table
----@param start_row integer
+---@param start_row number
 ---@return nil
 function UI:display_tokens(parser, start_row)
   if config.display.chat.show_token_count and self.tokens then
@@ -504,7 +566,7 @@ function UI:add_line_break()
   local _, _, line_count = self:last()
 
   self:unlock_buf()
-  vim.api.nvim_buf_set_lines(self.chat_bufnr, line_count, line_count, false, { "" })
+  api.nvim_buf_set_lines(self.chat_bufnr, line_count, line_count, false, { "" })
   self:lock_buf()
 
   self:move_cursor(true)

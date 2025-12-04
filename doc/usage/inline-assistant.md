@@ -1,3 +1,7 @@
+---
+description: Learn how to use the Inline Assistant in CodeCompanion
+---
+
 # Using the Inline Assistant
 
 <p align="center">
@@ -17,12 +21,15 @@ The inline assistant allows you to send context alongside your prompt via the no
 
 - `buffer` - shares the contents of the current buffer
 - `chat` - shares the LLM's messages from the last chat buffer
+- `clipboard` - shares the data on your clipboard with the LLM
 
 Simply include them in your prompt. For example `:CodeCompanion #{buffer} add a new method to this file`. Multiple variables can be sent as part of the same prompt. You can even add your own custom variables as per the [configuration](/configuration/inline-assistant#variables).
 
+You can also have multiple variables a part of a prompt, for example: `:CodeCompanion #{buffer} #{clipboard} analyze this code`.
+
 ## Adapters
 
-You can specify a different adapter to that in the configuration (`strategies.inline.adapter`) when sending an inline prompt. Simply include the adapter name as the first word in the prompt. For example `:<','>CodeCompanion deepseek can you refactor this?`. This approach can also be combined with variables.
+You can specify a different adapter to that in the configuration (`strategies.inline.adapter`) when sending an inline prompt. Simply include the adapter name within `<>`. For example `:<','>CodeCompanion <deepseek> can you refactor this?`. This approach can also be combined with variables.
 
 ## Classification
 
@@ -38,8 +45,8 @@ One of the challenges with inline editing is determining how the LLM's response 
 
 By default, an inline assistant prompt will trigger the diff feature, showing differences between the original buffer and the changes made by the LLM. This can be turned off in your config via the `display.diff.provider` table. You can also choose to accept or reject the LLM's suggestions with the following keymaps:
 
-- `ga` - Accept an inline edit
-- `gr` - Reject an inline edit
+- `gda` - Accept an inline edit
+- `gdr` - Reject an inline edit
 
 These keymaps can also be changed in your config via the `strategies.inline.keymaps` table.
 

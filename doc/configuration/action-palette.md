@@ -1,3 +1,7 @@
+---
+description: How to configure the action palette in CodeCompanion
+---
+
 # Configuring the Action Palette
 
 <p align="center">
@@ -24,6 +28,7 @@ require("codecompanion").setup({
       opts = {
         show_default_actions = true, -- Show the default actions in the action palette?
         show_default_prompt_library = true, -- Show the default prompt library in the action palette?
+        title = "CodeCompanion actions", -- The title of the action palette
       },
     },
   },

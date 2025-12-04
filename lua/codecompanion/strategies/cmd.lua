@@ -5,12 +5,17 @@ local config = require("codecompanion.config")
 local log = require("codecompanion.utils.log")
 
 ---@class CodeCompanion.Cmd
+---@field adapter CodeCompanion.HTTPAdapter The adapter to use for the chat
+---@field buffer_context table The context of the buffer that the chat was initiated from
+---@field prompts table Any prompts to be sent to the LLM
+
+---@class CodeCompanion.Cmd
 local Cmd = {}
 
 ---@param args table
 function Cmd.new(args)
   local self = setmetatable({
-    context = args.context,
+    buffer_context = args.buffer_context,
     prompts = args.prompts,
     opts = args.opts,
   }, { __index = Cmd })
@@ -50,14 +55,14 @@ function Cmd:start()
     :request({ messages = self.adapter:map_roles(messages) }, {
       ---@param err string
       ---@param data table
-      ---@param adapter CodeCompanion.Adapter The modified adapter from the http client
+      ---@param adapter CodeCompanion.HTTPAdapter The modified adapter from the http client
       callback = function(err, data, adapter)
         if err then
           return log:error(err)
         end
 
         if data then
-          local result = self.adapter.handlers.chat_output(adapter, data)
+          local result = adapters.call_handler(adapter, "parse_chat", data)
           if result and result.output and result.output.content then
             local content = result.output.content
             content:gsub("^%s*(.-)%s*$", "%1")
@@ -67,7 +72,7 @@ function Cmd:start()
       end,
       done = function() end,
     }, {
-      bufnr = self.context.bufnr,
+      bufnr = self.buffer_context.bufnr,
       strategy = "cmd",
     })
 end

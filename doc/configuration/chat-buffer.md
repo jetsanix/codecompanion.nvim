@@ -1,3 +1,7 @@
+---
+description: Configure CodeCompanion's native chat buffer, to enable Vim like coding with AI
+---
+
 # Configuring the Chat Buffer
 
 By default, CodeCompanion provides a "chat" strategy that uses a dedicated Neovim buffer for conversational interaction with your chosen LLM. This buffer can be customized according to your preferences.
@@ -61,6 +65,27 @@ require("codecompanion").setup({
 })
 ```
 
+### Pinning and Watching
+
+To [pin or watch](/usage/chat-buffer/variables#with-parameters) buffers by default, you can add this configuration:
+
+```lua
+require("codecompanion").setup({
+  strategies = {
+    chat = {
+      variables = {
+        ["buffer"] = {
+          opts = {
+            default_params = 'pin', -- or 'watch'
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+
 ## Slash Commands
 
 [Slash Commands](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/config.lua#L114) (invoked with `/`) let you dynamically insert context into the chat buffer, such as file contents or date/time.
@@ -89,6 +114,28 @@ require("codecompanion").setup({
 })
 ```
 
+It's also possible to conditionally enable a slash command by including `enabled` in the config:
+
+```lua
+require("codecompanion").setup({
+  strategies = {
+    chat = {
+      slash_commands = {
+        ["image"] = {
+          callback = "strategies.chat.slash_commands.catalog.image",
+          description = "Insert an image",
+          ---@param opts { adapter: CodeCompanion.HTTPAdapter }
+          ---@return boolean
+          enabled = function(opts)
+            return opts.adapter.opts and opts.adapter.opts.vision == true
+          end,
+        },
+      },
+    },
+  },
+})
+```
+
 > [!IMPORTANT]
 > Each slash command may have their own unique configuration so be sure to check out the [config.lua](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/config.lua) file
 
@@ -107,7 +154,7 @@ require("codecompanion").setup({
             if handle ~= nil then
               local result = handle:read("*a")
               handle:close()
-              chat:add_reference({ role = "user", content = result }, "git", "<git_files>")
+              chat:add_context({ role = "user", content = result }, "git", "<git_files>")
             else
               return vim.notify("No git files available", vim.log.levels.INFO, { title = "CodeCompanion" })
             end
@@ -151,7 +198,7 @@ require("codecompanion").setup({
 
 ```
 
-## Agents and Tools
+## Tools
 
 [Tools](https://github.com/olimorris/codecompanion.nvim/blob/main/lua/codecompanion/config.lua#L55) perform specific tasks (e.g., running shell commands, editing buffers, etc.) when invoked by an LLM. Multiple tools can be grouped together. Both can be referenced with `@` when in the chat buffer:
 
@@ -190,7 +237,7 @@ A tool is a [`CodeCompanion.Tool`](/extending/tools) table with specific keys th
 
 ### Tool Conditionals
 
-Tools can also be conditionally enabled:
+Built-in tools can also be conditionally enabled:
 
 ```lua
 require("codecompanion").setup({
@@ -198,8 +245,9 @@ require("codecompanion").setup({
     chat = {
       tools = {
         ["grep_search"] = {
+          ---@param adapter CodeCompanion.HTTPAdapter
           ---@return boolean
-          enabled = function()
+          enabled = function(adapter)
             return vim.fn.executable("rg") == 1
           end,
         },
@@ -211,9 +259,28 @@ require("codecompanion").setup({
 
 This is useful to ensure that a particular dependency is installed on the machine. After the user has installed the dependency, the `:CodeCompanionChat RefreshCache` command can be used to refresh the cache's across chat buffers.
 
+If you wish to conditionally enable an adapter's own tools, you can do so with:
+
+```lua
+require("codecompanion").setup({
+  openai_responses = function()
+    return require("codecompanion.adapters").extend("openai_responses", {
+      available_tools = {
+        ["web_search"] = {
+          ---@param adapter CodeCompanion.HTTPAdapter
+          enabled = function(adapter)
+            return false
+          end,
+        },
+      },
+    })
+  end,
+})
+```
+
 ### Approvals
 
-Some tools, such as [cmd_runner](/usage/chat-buffer/agents.html#cmd-runner), require the user to approve any commands before they're executed. This can be changed by altering the config for each tool:
+Some tools, such as [cmd_runner](/usage/chat-buffer/tools.html#cmd-runner), require the user to approve any commands before they're executed. This can be changed by altering the config for each tool:
 
 ```lua
 require("codecompanion").setup({
@@ -360,26 +427,125 @@ require("codecompanion").setup({
 
 ## Diff
 
-> [!NOTE]
-> Currently the plugin only supports native Neovim diff or [mini.diff](https://github.com/echasnovski/mini.diff)
+CodeCompanion has built-in inline and split diffs available to you. If you utilize the `insert_edit_into_file` tool, then the plugin can update files and buffers and a diff will be created so you can see the changes made by the LLM. The `inline` is the default diff.
 
-If you utilize the `insert_edit_into_file` tool, then the plugin can update a given chat buffer. A diff will be created so you can see the changes made by the LLM.
+Depending on which provider you choose, there are different configuration options available to you:
 
-There are a number of diff settings available to you:
+:::tabs
+
+== Select Provider
 
 ```lua
 require("codecompanion").setup({
   display = {
     diff = {
       enabled = true,
-      close_chat_at = 240, -- Close an open chat buffer if the total columns of your display are less than...
-      layout = "vertical", -- vertical|horizontal split for default provider
-      opts = { "internal", "filler", "closeoff", "algorithm:patience", "followwrap", "linematch:120" },
-      provider = "default", -- default|mini_diff
+      provider = providers.diff, -- inline|split|mini.diff
     },
   },
-}),
+})
 ```
+
+== Inline Provider
+
+```lua
+require("codecompanion").setup({
+  display = {
+    diff = {
+      provider_opts = {
+        inline = {
+          layout = "float", -- float|buffer - Where to display the diff
+          opts = {
+            context_lines = 3, -- Number of context lines in hunks
+            dim = 25, -- Background dim level for floating diff (0-100, [100 full transparent], only applies when layout = "float")
+            full_width_removed = true, -- Make removed lines span full width
+            show_keymap_hints = true, -- Show "gda: accept | gdr: reject" hints above diff
+            show_removed = true, -- Show removed lines as virtual text
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+== Split Provider
+
+```lua
+require("codecompanion").setup({
+  display = {
+    diff = {
+      provider_opts = {
+        split = {
+          close_chat_at = 240, -- Close an open chat buffer if the total columns of your display are less than...
+          layout = "vertical", -- vertical|horizontal split
+          opts = {
+            "internal",
+            "filler",
+            "closeoff",
+            "algorithm:histogram", -- https://adamj.eu/tech/2024/01/18/git-improve-diff-histogram/
+            "indent-heuristic", -- https://blog.k-nut.eu/better-git-diffs
+            "followwrap",
+            "linematch:120",
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+
+:::
+
+You can also customize the window that the diff appears in (taking precedence over `child_window`):
+
+```lua
+require("codecompanion").setup({
+  display = {
+    chat = {
+      -- Extend/override the child_window options for a diff
+      diff_window = {
+        ---@return number|fun(): number
+        width = function()
+          return math.min(120, vim.o.columns - 10)
+        end,
+        ---@return number|fun(): number
+        height = function()
+          return vim.o.lines - 4
+        end,
+        opts = {
+          number = true,
+        },
+      },
+    },
+  },
+})
+```
+
+
+The keymaps for accepting and rejecting the diff sit within the `inline` strategy configuration and can be changed via:
+
+```lua
+require("codecompanion").setup({
+  strategies = {
+    inline = {
+      keymaps = {
+        accept_change = {
+          modes = { n = "gda" }, -- Remember this as DiffAccept
+        },
+        reject_change = {
+          modes = { n = "gdr" }, -- Remember this as DiffReject
+        },
+        always_accept = {
+          modes = { n = "gdy" }, -- Remember this as DiffYolo
+        },
+      },
+    },
+  },
+})
+```
+
 
 ## User Interface (UI)
 
@@ -414,6 +580,103 @@ By default, the LLM's responses will be placed under a header such as `CodeCompa
 
 The user role is currently only available as a string.
 
+### Floating Child Windows
+
+The plugin leverages floating windows to display content to a user in a variety of scenarios, such as with the [Super Diff](/usage/chat-buffer/#super-diff), [debug window](/usage/chat-buffer/#messages) or agent [permissions](/usage/chat-buffer/agents.html#permissions).
+
+The default sizing of this window can be configured:
+
+```lua
+require("codecompanion").setup({
+  display = {
+    chat = {
+      child_window = {
+        width = vim.o.columns - 5,
+        height = vim.o.lines - 2,
+        row = "center",
+        col = "center",
+        relative = "editor",
+        opts = {
+          wrap = false,
+          number = false,
+          relativenumber = false,
+        },
+      },
+    },
+  },
+})
+```
+
+### Auto Scrolling
+
+By default, the page scrolls down automatically as the response streams, with the cursor placed at the end. This can be distracting if you are focusing on the earlier content while the page scrolls up away during a long response. You can disable this behavior using a flag:
+
+```lua
+require("codecompanion").setup({
+  display = {
+    chat = {
+      auto_scroll = false,
+    },
+  },
+})
+```
+
+### Context
+
+It's not uncommon for users to share many items, as context, with an LLM. This can impact the chat buffer's UI significantly, leaving a large space between the LLM's last response and the user's input. To minimize this impact, the context can be folded:
+
+```lua
+require("codecompanion").setup({
+  display = {
+    chat = {
+      icons = {
+        chat_context = "📎️", -- You can also apply an icon to the fold
+      },
+      fold_context = true,
+    },
+  },
+})
+```
+
+### Reasoning
+
+An adapter's reasoning is streamed into the chat buffer by default, under a `h3` heading. By default, this output will be folded once streaming has been completed. You can turn off folding and hide reasoning output altogether:
+
+```lua
+require("codecompanion").setup({
+  display = {
+    chat = {
+      icons = {
+        chat_fold = " ",
+      },
+      fold_reasoning = false,
+      show_reasoning = false,
+    },
+  },
+})
+```
+
+### Additional UI Options
+
+There are also a number of other options that you can customize in the UI:
+
+```lua
+require("codecompanion").setup({
+  display = {
+    chat = {
+      intro_message = "Welcome to CodeCompanion ✨! Press ? for options",
+      separator = "─", -- The separator between the different messages in the chat buffer
+      show_context = true, -- Show context (from slash commands and variables) in the chat buffer?
+      show_header_separator = false, -- Show header separators in the chat buffer? Set this to false if you're using an external markdown formatting plugin
+      show_settings = false, -- Show LLM settings at the top of the chat buffer?
+      show_token_count = true, -- Show the token count for each response?
+      show_tools_processing = true, -- Show the loading message when tools are being executed?
+      start_in_insert_mode = false, -- Open the chat buffer in insert mode?
+    },
+  },
+})
+```
+
 ### Completion
 
 By default, CodeCompanion looks to use the fantastic [blink.cmp](https://github.com/Saghen/blink.cmp) plugin to complete variables, slash commands and tools. However, you can override this in your config:
@@ -431,42 +694,6 @@ require("codecompanion").setup({
 ```
 
 The plugin also supports [nvim-cmp](https://github.com/hrsh7th/nvim-cmp), a native completion solution (`default`), and [coc.nvim](https://github.com/neoclide/coc.nvim).
-
-### Auto scrolling
-
-By default, the page scrolls down automatically as the response streams, with the cursor placed at the end.
-This can be distracting if you are focusing on the earlier content while the page scrolls up away during a long response.
-You can disable this behavior using a flag:
-
-```lua
-require("codecompanion").setup({
-  display = {
-    chat = {
-      auto_scroll = false
-    },
-  },
-}),
-```
-
-## Additional Options
-
-There are also a number of other options that you can customize:
-
-```lua
-require("codecompanion").setup({
-  display = {
-    chat = {
-      intro_message = "Welcome to CodeCompanion ✨! Press ? for options",
-      show_header_separator = false, -- Show header separators in the chat buffer? Set this to false if you're using an external markdown formatting plugin
-      separator = "─", -- The separator between the different messages in the chat buffer
-      show_references = true, -- Show references (from slash commands and variables) in the chat buffer?
-      show_settings = false, -- Show LLM settings at the top of the chat buffer?
-      show_token_count = true, -- Show the token count for each response?
-      start_in_insert_mode = false, -- Open the chat buffer in insert mode?
-    },
-  },
-}),
-```
 
 ## Jump Action
 

@@ -1,3 +1,30 @@
+---@meta Agent Client Protocol
+
+---@class ACP.promptCapabilities
+---@field audio boolean
+---@field embeddedContext boolean
+---@field image boolean
+
+---@class ACP.agentCapabilities
+---@field loadSession boolean
+---@field promptCapabilities ACP.promptCapabilities
+
+---@class ACP.AuthMethod
+---@field id string
+---@field name string
+---@field description? string|nil
+
+---@alias ACP.authMethods ACP.AuthMethod[]
+
+---@class ACP.AvailableCommand
+---@field name string The command name (e.g., "cost", "context")
+---@field description string The command description
+---@field input? { hint: string } Optional input hint for arguments
+
+---@alias ACP.availableCommands ACP.AvailableCommand[]
+
+---@meta Tree-sitter
+
 ---@class vim.treesitter.LanguageTree
 ---@field parse function
 
@@ -10,6 +37,47 @@
 ---@class TSQuery
 
 ---@meta CodeCompanion
+
+---@alias CodeCompanion.Chat.Messages CodeCompanion.Chat.Message[]
+
+---@class CodeCompanion.Chat.Message
+---@field role string Role of the author (e.g. "user", "llm", "system", "tool")
+---@field content string The raw Markdown/text content of the message (optional for tool-only entries)
+---@field tools? table Optional tool data
+---@field tools.call_id? string Tool call ID
+---@field tools.calls? CodeCompanion.Chat.ToolCall[] Array of tool calls
+---@field tools.id? string Tool ID
+---@field opts? table Optional metadata used by the UI and processing
+---@field opts.visible? boolean Whether the message should be shown in the chat UI
+---@field opts.pinned? boolean Whether the context message is pinned
+---@field opts.index? number If set, the message was inserted at this index
+---@field opts.watched? boolean Whether the context is being watched for changes
+---@field _meta? table Internal static metadata (e.g. { sent = true })
+---@field _meta.id? number Unique identifier for the message (generated via hash)
+---@field _meta.cycle? number The chat turn cycle when this message was added
+---@field _meta.index? number The index of the chat message in the messages stack
+---@field _meta.tag? string A tag to identify special messages (e.g. "system_prompt_from_config", "tool")
+---@field context? { id?: string, path?: string, mimetype?: string, url?: string } Optional context object
+---@field reasoning? CodeCompanion.Chat.Reasoning Optional reasoning object returned by some adapters
+---@field type? string Optional message type used by the UI (e.g. "llm_message", "tool_message", "reasoning_message")
+---@field _raw? any Any adapter-specific raw payload stored with the message
+---@field created_at? number Unix timestamp (optional, helpful for sorting/logging)
+---@field tokens? number Optional token count associated with this message
+
+---@class CodeCompanion.Chat.ToolFunctionCall
+---@field name string Name of the function/tool (e.g. "cmd_runner", "grep_search")
+---@field arguments string|table Raw JSON string or parsed table of arguments
+
+---@class CodeCompanion.Chat.ToolCall
+---@field id string Unique tool call identifier (e.g. "call_8Aoq8...")
+---@field type string Typically "function" (adapter/tool-specific)
+---@field _index? number Position index when returned by adapters
+---@field ["function"]? CodeCompanion.Chat.ToolFunctionCall Function descriptor (adapter key name is "function")
+---@field result? any Optional execution result or intermediate payload
+
+---@class CodeCompanion.Chat.Reasoning
+---@field content string The LLM's chain-of-thought / internal reasoning (often markdown)
+---@field meta? table Optional structured reasoning metadata
 
 ---@class CodeCompanion.SlashCommand
 ---@field Chat CodeCompanion.Chat The chat buffer
@@ -30,17 +98,14 @@
 ---@class CodeCompanion.Variable
 ---@field Chat CodeCompanion.Chat The chat buffer
 ---@field config table The config for the variable
----@field params string
+---@field target string The buffer that's being targeted by the variable
+---@field params string Any additional parameters for the variable
 
 ---@class CodeCompanion.VariableArgs
 ---@field Chat CodeCompanion.Chat The chat buffer
 ---@field config table The config for the variable
----@field params string
-
----@class CodeCompanion.Cmd
----@field adapter CodeCompanion.Adapter The adapter to use for the chat
----@field context table The context of the buffer that the chat was initiated from
----@field prompts table Any prompts to be sent to the LLM
+---@field target string The buffer that's being targeted by the variable
+---@field params string Any additional parameters for the variable
 
 ---@class CodeCompanion.Watchers
 ---@field buffers table<number, CodeCompanion.WatcherState> Map of buffer numbers to their states
@@ -68,41 +133,7 @@
 ---@field reuse fun(chat: CodeCompanion.Chat): boolean Should the current prompt be reused?
 ---@field order number The order in which the events are executed
 
----@class CodeCompanion.Chat.Ref
----@field source string The source of the reference e.g. slash_command
----@field id string The unique ID of the reference which links it to a message in the chat buffer and is displayed to the user
----@field opts? table
----@field opts.pinned? boolean Whether this reference is pinned
----@field opts.watched? boolean Whether this reference is being watched for changes
----@field opts.visible? boolean Whether this reference should be shown in the chat UI
----@field bufnr? number The buffer number if this is a buffer reference
-
----@class CodeCompanion.Chat.UI
----@field adapter CodeCompanion.Adapter The adapter in use for the chat
----@field aug number The autocmd group ID
----@field chat_bufnr number The buffer number of the chat
----@field chat_id number The unique ID of the chat
----@field header_ns number The namespace for the header
----@field roles table The roles in the chat
----@field winnr number The window number of the chat
----@field settings table The settings for the chat
----@field tokens number The current token count in the chat
----@field tools CodeCompanion.Chat.UI.Tools The tools used in the chat
-
----@class CodeCompanion.Chat.UIArgs
----@field adapter CodeCompanion.Adapter
----@field chat_bufnr number
----@field chat_id number
----@field roles table
----@field winnr number
----@field settings table
----@field tokens number
-
----@class CodeCompanion.Chat.UI.ToolArgs
----@field chat_bufnr number
----@field winnr number
-
----@class CodeCompanion.Agent.Tool
+---@class CodeCompanion.Tools.Tool
 ---@field name string The name of the tool
 ---@field cmds table The commands to execute
 ---@field function_call table The function call from the LLM
@@ -111,15 +142,15 @@
 ---@field opts? table The options for the tool
 ---@field env? fun(schema: table): table|nil Any environment variables that can be used in the *_cmd fields. Receives the parsed schema from the LLM
 ---@field handlers table Functions which handle the execution of a tool
----@field handlers.setup? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent): any Function used to setup the tool. Called before any commands
----@field handlers.prompt_condition? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent, config: table): boolean Function to determine whether to show the promp to the user or not
----@field handlers.on_exit? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent): any Function to call at the end of a group of commands or functions
+---@field handlers.setup? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools): any Function used to setup the tool. Called before any commands
+---@field handlers.prompt_condition? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools, config: table): boolean Function to determine whether to show the promp to the user or not
+---@field handlers.on_exit? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools): any Function to call at the end of a group of commands or functions
 ---@field output? table Functions which handle the output after every execution of a tool
----@field output.prompt fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent): string The message which is shared with the user when asking for their approval
----@field output.rejected? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent, cmd: table): any Function to call if the user rejects running a command
----@field output.error? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent, cmd: table, stderr: table, stdout?: table): any The function to call if an error occurs
----@field output.success? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent, cmd: table, stdout: table): any Function to call if the tool is successful
----@field output.cancelled? fun(self: CodeCompanion.Agent.Tool, agent: CodeCompanion.Agent, cmd: table): any Function to call if the tool is cancelled
+---@field output.prompt fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools): string The message which is shared with the user when asking for their approval
+---@field output.rejected? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools, cmd: table, opts?: {reason?: string}): any Function to call if the user rejects running a command
+---@field output.error? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools, cmd: table, stderr: table, stdout?: table): any The function to call if an error occurs
+---@field output.success? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools, cmd: table, stdout: table): any Function to call if the tool is successful
+---@field output.cancelled? fun(self: CodeCompanion.Tools.Tool, tools: CodeCompanion.Tools, cmd: table): any Function to call if the tool is cancelled
 ---@field args table The arguments sent over by the LLM when making the request
 ---@field tool table The tool configuration from the config file
 

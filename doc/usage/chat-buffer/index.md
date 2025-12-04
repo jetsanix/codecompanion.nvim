@@ -1,20 +1,37 @@
 ---
+description: How to use the chat buffer in CodeCompanion.nvim
 prev:
   text: 'Action Palette'
   link: '/usage/action-palette'
 next:
-  text: 'Agents/Tools'
-  link: '/usage/chat-buffer/agents'
+  text: 'Tools'
+  link: '/usage/chat-buffer/tools'
 ---
 
 # Using the Chat Buffer
 
 > [!NOTE]
-> The chat buffer has a filetype of `codecompanion` and a buftype of `nofile`
+> The chat buffer has a filetype of `codecompanion` and a buftype of `nofile`.
 
-You can open a chat buffer with the `:CodeCompanionChat` command or with `require("codecompanion").chat()`. You can toggle the visibility of the chat buffer with `:CodeCompanionChat Toggle` or `require("codecompanion").toggle()`.
+You can open a chat buffer with the `:CodeCompanionChat` command or with `require("codecompanion").chat()` and you can toggle the visibility of the chat buffer with `:CodeCompanionChat Toggle` or `require("codecompanion").toggle()`.
 
-The chat buffer uses markdown as its syntax and `H2` headers separate the user and LLM's responses. The plugin is turn-based, meaning that the user sends a response which is then followed by the LLM's. The user's responses are parsed by [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) and sent via an adapter to an LLM for a response which is then streamed back into the buffer. A response is sent to the LLM by pressing `<CR>` or `<C-s>`. This can of course be changed as per the [keymaps](#keymaps) section.
+You can even customize the chat buffer's window options:
+
+```lua
+require("codecompanion").chat({ window_opts = { layout = "float", width = 0.6 }})
+-- or:
+require("codecompanion").toggle({ window_opts = { layout = "float", width = 0.6 }})
+```
+
+The chat buffer uses markdown as its syntax and `H2` headers separate the user and LLM's responses. The plugin is turn-based, meaning that the user sends a response which is then followed by the LLM's. The user's responses are parsed by treesitter and sent via an adapter to an LLM for a response which is then streamed back into the buffer. A response is sent to the LLM by pressing `<CR>` or `<C-s>`. This can of course be changed as per the [keymaps](#keymaps) section.
+
+## Changing Adapter
+
+<img src="https://github.com/user-attachments/assets/e19ade4f-1daa-4634-b071-4ecd400371eb" />
+
+One of the joys of working with CodeCompanion is being able to switch between conversing with an LLM and an agent, all from within the chat buffer.
+
+To do this, simply press `ga` to open up the _Select Adapter_ select window. If your chosen adapter has more than one model (in the case of HTTP adapters) or command (in the case of ACP adapters) then you'll be prompted to make another selection.
 
 ## Messages
 
@@ -35,24 +52,33 @@ Many LLMs have the ability to receive images as input (sometimes referred to as 
 
 If your adapter and model doesn't support images, then CodeCompanion will endeavour to ensure that the image is not included in the messages payload that's sent to the LLM.
 
-## References / Context
+## Context
 
 <img src="https://github.com/user-attachments/assets/e8a31214-ccba-407f-a8e4-32ba185a3ecd" />
 
-Sharing context with an LLM is crucial in order to generate useful responses. In the plugin, references are defined as output that is shared with a chat buffer via a _Variable_, _Slash Command_ or _Agent/Tool_. They appear in a blockquote entitled `Context`. In essence, this is context that you're sharing with an LLM.
+Sharing context with an LLM is crucial in order to generate useful responses. In the plugin, context is defined as output that is shared with a chat buffer via a _Variable_, _Slash Command_ or _Tool_. They appear in a blockquote entitled `Context`. In essence, this is context that you're sharing with an LLM.
 
 > [!IMPORTANT]
-> References contain the data of an object at a point in time. By default, they **are not** self-updating
+> Context items contain the data of an object at a point in time. By default, they **are not** self-updating
 
-In order to allow for references to self-update, they can be _pinned_ (for files and buffers) or _watched_ (for buffers).
+In order to allow for context to self-update, they can be _pinned_ (for files and buffers) or _watched_ (for buffers).
 
-File and buffer references can be _pinned_ to a chat buffer with the `gp` keymap (when your cursor is on the line of the shared buffer in the "> Context section). Pinning results in the content from the object being reloaded and shared with the LLM on every turn. The advantage of this is that the LLM will always receive a fresh copy of the source data regardless of any changes. This can be useful if you're working with agents and tools. However, please note that this can consume a lot of tokens.
+File and buffer context items can be _pinned_ to a chat buffer with the `gp` keymap (when your cursor is on the line of the shared buffer in the "> Context section). Pinning results in the content from the object being reloaded and shared with the LLM on every turn. The advantage of this is that the LLM will always receive a fresh copy of the source data regardless of any changes. This can be useful if you're working with tools. However, please note that this can consume a lot of tokens.
 
-Buffer references can be _watched_ via the `gw` keymap (when your cursor is on the line of the shared buffer in the "> Context section). Watching, whilst similar to pinning, is a more token-conscious way of keeping the LLM up to date on the contents of a buffer. Watchers track changes (adds, edits, deletes) in the underlying buffer and update the LLM on each turn, with only those changes.
+Buffer context items can be _watched_ via the `gw` keymap (when your cursor is on the line of the shared buffer in the "> Context section). Watching, whilst similar to pinning, is a more token-conscious way of keeping the LLM up to date on the contents of a buffer. Watchers track changes (adds, edits, deletes) in the underlying buffer and update the LLM on each turn, with only those changes.
 
-If a reference is added by mistake, it can be removed from the chat buffer by simply deleting it from the `Context` blockquote. On the next turn, all context related to that reference will be removed from the message history.
+If a context item is added by mistake, it can be removed from the chat buffer by simply deleting it from the `Context` blockquote. On the next turn, all data related to that context item will be removed from the message history.
 
-Finally, it's important to note that all LLM endpoints require the sending of previous messages that make up the conversation. So even though you've shared a reference once, many messages ago, the LLM will always have that context to refer to.
+Finally, it's important to note that all http adapter endpoints require the sending of previous messages that make up the conversation. So even though you've shared context once, many messages ago, the LLM will always be able to refer to it, unless you actively alter the history of the conversation via `gd`.
+
+## Super Diff
+
+<img alt="Super Diff" src="https://github.com/user-attachments/assets/e530d6dd-6f14-4085-b839-6d30439b356f" />
+
+When an LLM uses tools like [insert_edit_into_file](/usage/chat-buffer/tools#insert-edit-into-file) to make changes across multiple files and buffers, it can be difficult to keep track. This is amplified if the tools are working without requiring approvals (perhaps via [automatic tool mode](/usage/chat-buffer/tools.html#automatic-tool-mode)) and it simply isn't impossible to keep track of what an LLM has added, deleted or modified.
+
+Super Diff gives you a single, unified view of all edits made in via the chat buffer. Open it with `gD` to review every change, grouped by file, with visual diffs and status indicators. You can accept or reject changes before they’re applied, keeping you in control of your codebase. You can even send changes to the quickfix list for easier navigation and review.
+
 
 ## Settings
 
@@ -69,6 +95,14 @@ When conversing with an LLM, it can be useful to tweak model settings in between
 
 You can invoke the completion plugins by typing `#` or `@` followed by the variable or tool name, which will trigger the completion menu. If you don't use a completion plugin, you can use native completions with no setup, invoking them with `<C-_>` from within the chat buffer.
 
+When using an ACP adapter (such as claude-code), you can also type `\` (backslash, by default) to get completions for ACP commands. These are agent-specific commands like `/compact` (compact chat history) that are dynamically discovered from the agent itself.
+
+> [!NOTE]
+> It typically takes 1-5 seconds after opening a chat buffer for ACP commands to become available. The agent needs to initialize and scan for both built-in and custom commands. If you define a new custom command mid-session, the same delay applies before it appears in the completion list.
+
+The backslash trigger is used to avoid conflicts with CodeCompanion's built-in [Slash Commands](/usage/chat-buffer/slash-commands). When you send a message, `\command` is automatically transformed to `/command` for the agent. The trigger character can be customized via `strategies.chat.slash_commands.opts.acp.trigger` in your config.
+
+It's worth noting that not all commands available in ACP CLI tools are exposed via the SDK. Only a subset of built-in commands are supported, though this is constantly evolving as the underlying SDKs mature.
 
 ## Keymaps
 
@@ -82,18 +116,34 @@ The keymaps available to the user in normal mode are:
 - `ga` to change the adapter for the currentchat
 - `gc` to insert a codeblock in the chat buffer
 - `gd` to view/debug the chat buffer's contents
+- `gD` to view the chat buffer's super diff feature
 - `gf` to fold any codeblocks in the chat buffer
-- `gp` to pin a reference to the chat buffer
-- `gw` to watch a referenced buffer
+- `gM` to clear all memory from the chat buffer
+- `gp` to pin an item to the context in the chat buffer
 - `gr` to regenerate the last response
 - `gR` to go to the file under cursor. If the file is already opened, it'll jump
   to the existing window. Otherwise, it'll be opened in a new tab.
 - `gs` to toggle the system prompt on/off
 - `gS` to show copilot usage stats
 - `gta` to toggle auto tool mode
+- `gw` to watch a buffer as context in the chat buffer
 - `gx` to clear the chat buffer's contents
 - `gy` to yank the last codeblock in the chat buffer
 - `[[` to move to the previous header
 - `]]` to move to the next header
 - `{` to move to the previous chat
 - `}` to move to the next chat
+
+To disable a keymap, you can set it to `false` in your configuration:
+
+```lua
+require("codecompanion").setup({
+  strategies = {
+    chat = {
+      keymaps = {
+        clear = false,
+      }
+    }
+  }
+})
+```

@@ -1,3 +1,7 @@
+---
+description: How to install CodeCompanion and it's dependencies
+---
+
 # Installation
 
 > [!IMPORTANT]
@@ -8,7 +12,7 @@
 - The `curl` library
 - Neovim 0.11.0 or greater
 - _(Optional)_ An API key for your chosen LLM
-- _(Optional)_ The `base64` library for image/vision support
+- _(Optional)_ The [file](https://man7.org/linux/man-pages/man1/file.1.html) command for detecting image mimetype
 - _(Optional)_ The [ripgrep](https://github.com/BurntSushi/ripgrep) library for the `grep_search` tool
 
 ## Installation
@@ -23,7 +27,6 @@ The plugin can be installed with the plugin manager of your choice:
   opts = {},
   dependencies = {
     "nvim-lua/plenary.nvim",
-    "nvim-treesitter/nvim-treesitter",
   },
 },
 ```
@@ -38,7 +41,6 @@ use({
   end,
   requires = {
     "nvim-lua/plenary.nvim",
-    "nvim-treesitter/nvim-treesitter",
   }
 }),
 ```
@@ -49,7 +51,6 @@ use({
 call plug#begin()
 
 Plug 'nvim-lua/plenary.nvim'
-Plug 'nvim-treesitter/nvim-treesitter'
 Plug 'olimorris/codecompanion.nvim'
 
 call plug#end()
@@ -173,7 +174,7 @@ Use [img-clip.nvim](https://github.com/hakonharnes/img-clip.nvim) to copy images
 
 ## Completion
 
-When in the [chat buffer](usage/chat-buffer/index), completion can be used to more easily add [variables](usage/chat-buffer/variables), [slash commands](usage/chat-buffer/slash-commands) and [tools](usage/chat-buffer/agents). Out of the box, the plugin supports completion with both [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) and [blink.cmp](https://github.com/Saghen/blink.cmp). For the latter, on version <= 0.10.0, ensure that you've added `codecompanion` as a source:
+When in the [chat buffer](usage/chat-buffer/index), completion can be used to more easily add [variables](usage/chat-buffer/variables), [slash commands](usage/chat-buffer/slash-commands) and [tools](usage/chat-buffer/tools). Out of the box, the plugin supports completion with both [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) and [blink.cmp](https://github.com/Saghen/blink.cmp). For the latter, on version <= 0.10.0, ensure that you've added `codecompanion` as a source:
 
 ```lua
 sources = {

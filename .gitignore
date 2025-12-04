@@ -48,12 +48,12 @@ doc/.vitepress/cache
 doc/tags*
 doc/node_modules
 
-assets/
 .direnv/
 .testenv/
 .repro/
 deps/
 todo.md
-/media/
-/examples/
+/media
+/examples
+/memories
 chroma.log

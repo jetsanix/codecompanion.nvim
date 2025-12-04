@@ -1,3 +1,7 @@
+---
+description: Learn how to create your own prompts for the prompt library in CodeCompanion
+---
+
 # Creating Prompts
 
 The purpose of this guide is to showcase how you can extend the functionality of CodeCompanion by adding your own prompts to the config that are reflected in the _Action Palette_. The _Action Palette_ is a lua table which is parsed by the plugin and displayed as a `vim.ui.select` component. By specifying certain keys, the behaviour of the table can be customised further.
@@ -328,7 +332,7 @@ As outlined in the [classification](/usage/inline-assistant.html#classification)
 
 In this example, the LLM's response will be placed in a new buffer.
 
-### Ignoring the default system prompt
+### Ignoring the Default System Prompt
 
 It may also be useful to create custom prompts that do not send the default system prompt with the request:
 
@@ -343,14 +347,29 @@ It may also be useful to create custom prompts that do not send the default syst
 }
 ```
 
-### Prompts with References
+### Setting a Custom Intro Message
 
-It can be useful to pre-load a chat buffer with references to _files_, _symbols_ or even _urls_. This makes conversing with an LLM that much more productive. As per `v11.9.0`, this can now be accomplished, as per the example below:
+To customize the chat buffer UI, you can set a custom intro message:
 
 ```lua
-["Test References"] = {
+["Your_New_Prompt"] = {
   strategy = "chat",
-  description = "Add some references",
+  description = "Your Special New Prompt",
+  opts = {
+    intro_message = "Welcome to your Special New Prompt"
+  },
+  -- Your prompts here
+}
+```
+
+### Prompts with Context
+
+It can be useful to pre-load a chat buffer with context from _files_, _symbols_ or even _urls_. This makes conversing with an LLM that much more productive. This can now accomplished, as per the example below:
+
+```lua
+["Test Context"] = {
+  strategy = "chat",
+  description = "Add some context",
   opts = {
     index = 11,
     is_default = true,
@@ -359,7 +378,7 @@ It can be useful to pre-load a chat buffer with references to _files_, _symbols_
     auto_submit = false,
   },
   -- These will appear at the top of the chat buffer
-  references = {
+  context = {
     {
       type = "file",
       path = { -- This can be a string or a table of values
@@ -389,6 +408,23 @@ It can be useful to pre-load a chat buffer with references to _files_, _symbols_
       },
     },
   },
+},
+```
+
+### Prompts with Memory
+
+You can specify a default memory group to load with a prompt:
+
+```lua
+["Test Context"] = {
+  strategy = "chat",
+  description = "Add some context",
+  opts = {
+    default_memory = "my_custom_memory_group",
+  },
+  prompts = {
+    -- Prompt go here
+  }
 },
 ```
 

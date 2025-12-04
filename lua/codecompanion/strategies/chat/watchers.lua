@@ -8,6 +8,7 @@ local log = require("codecompanion.utils.log")
 
 local api = vim.api
 local fmt = string.format
+local diff = vim.text.diff or vim.diff
 
 ---@class CodeCompanion.Watchers
 local Watchers = {}
@@ -88,13 +89,17 @@ function Watchers:get_changes(bufnr)
     self:unwatch(bufnr)
     return true, nil
   end
+
   local buffer = self.buffers[bufnr]
+
   local current_content = api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local current_tick = api.nvim_buf_get_changedtick(bufnr)
   if current_tick == buffer.changedtick then
     return false, nil
   end
+
   local old_content = buffer.last_sent -- Store before updating
+
   local changed = has_changes(old_content, current_content)
   if changed then
     buffer.content = current_content
@@ -114,14 +119,15 @@ local function format_changes_as_diff(old_content, new_content)
   -- Convert line arrays to strings for vim.diff
   local old_str = table.concat(old_content, "\n") .. "\n"
   local new_str = table.concat(new_content, "\n") .. "\n"
-  -- Use vim.diff to generate clean unified diff
-  local diff_result = vim.diff(old_str, new_str, {
+
+  local diff_result = diff(old_str, new_str, {
     result_type = "unified",
-    ctxlen = 3, -- 3 lines of context
+    ctxlen = 3,
     algorithm = "myers",
   })
+
   if diff_result and diff_result ~= "" then
-    return fmt("```diff\n%s```", diff_result)
+    return fmt("````diff\n%s````", diff_result)
   end
 
   return ""
@@ -130,27 +136,31 @@ end
 ---Check all watched buffers for changes
 ---@param chat CodeCompanion.Chat
 function Watchers:check_for_changes(chat)
-  for _, ref in ipairs(chat.refs) do
-    if ref.bufnr and ref.opts and ref.opts.watched then
-      local has_changed, old_content = self:get_changes(ref.bufnr)
+  for _, item in ipairs(chat.context_items) do
+    if item.bufnr and item.opts and item.opts.watched then
+      local has_changed, old_content = self:get_changes(item.bufnr)
 
       if has_changed and old_content then
-        local filename = vim.fn.fnamemodify(api.nvim_buf_get_name(ref.bufnr), ":.")
-        local current_content = api.nvim_buf_get_lines(ref.bufnr, 0, -1, false)
+        local filename = vim.fn.fnamemodify(api.nvim_buf_get_name(item.bufnr), ":.")
+        local current_content = api.nvim_buf_get_lines(item.bufnr, 0, -1, false)
         local diff_content = format_changes_as_diff(old_content, current_content)
 
         if diff_content ~= "" then
           local delta = fmt("The file `%s`, has been modified. Here are the changes:\n%s", filename, diff_content)
           chat:add_message({
             role = config.constants.USER_ROLE,
-            content = fmt([[<attachment filepath="%s" buffer_number="%s">%s</attachment>]], filename, ref.bufnr, delta),
-          }, { visible = false })
+            content = fmt(
+              [[<attachment filepath="%s" buffer_number="%s">%s</attachment>]],
+              filename,
+              item.bufnr,
+              delta
+            ),
+          }, { context = { id = item.id }, visible = false })
         end
       elseif has_changed then
-        -- buffer is now invalid
         chat:add_message({
           role = config.constants.USER_ROLE,
-          content = fmt([[buffer %d has been removed.]], ref.bufnr),
+          content = fmt([[Buffer %d has been removed.]], item.bufnr),
         }, { visible = false })
       end
     end

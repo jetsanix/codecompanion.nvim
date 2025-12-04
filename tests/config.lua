@@ -6,56 +6,72 @@ return {
     SYSTEM_ROLE = "system",
   },
   adapters = {
-    test_adapter = {
-      name = "test_adapter",
-      url = "https://api.openai.com/v1/chat/completions",
-      roles = {
-        llm = "assistant",
-        user = "user",
+    http = {
+      test_adapter = {
+        name = "test_adapter",
+        url = "https://api.openai.com/v1/chat/completions",
+        roles = {
+          llm = "assistant",
+          user = "user",
+        },
+        opts = {
+          stream = true,
+        },
+        headers = {
+          content_type = "application/json",
+        },
+        parameters = {
+          stream = true,
+        },
+        handlers = {
+          form_parameters = function()
+            return {}
+          end,
+          form_messages = function()
+            return {}
+          end,
+          is_complete = function()
+            return false
+          end,
+          tools = {
+            format_tool_calls = function(self, tools)
+              return tools
+            end,
+            output_response = function(self, tool_call, output)
+              return {
+                role = "tool",
+                tools = {
+                  call_id = tool_call.id,
+                },
+                content = output,
+                _meta = { tag = tool_call.id },
+                opts = { visible = false },
+              }
+            end,
+          },
+        },
+        schema = {
+          model = {
+            default = "gpt-3.5-turbo",
+          },
+        },
       },
       opts = {
-        stream = true,
-      },
-      headers = {
-        content_type = "application/json",
-      },
-      parameters = {
-        stream = true,
-      },
-      handlers = {
-        form_parameters = function()
-          return {}
-        end,
-        form_messages = function()
-          return {}
-        end,
-        is_complete = function()
-          return false
-        end,
-        tools = {
-          format_tool_calls = function(self, tools)
-            return tools
-          end,
-          output_response = function(self, tool_call, output)
-            return {
-              role = "tool",
-              tool_call_id = tool_call.id,
-              content = output,
-              opts = { tag = tool_call.id, visible = false },
-            }
-          end,
-        },
-      },
-      schema = {
-        model = {
-          default = "gpt-3.5-turbo",
-        },
+        allow_insecure = false,
+        proxy = nil,
       },
     },
-    opts = {
-      allow_insecure = false,
-      proxy = nil,
+    acp = {
+      test_acp = {
+        name = "test_acp",
+        type = "acp",
+        command = { "node", "test-agent.js" },
+        roles = { user = "user", assistant = "assistant" },
+      },
     },
+  },
+  interactions = {
+    background = {},
   },
   strategies = {
     chat = {
@@ -67,60 +83,94 @@ return {
       keymaps = og_config.strategies.chat.keymaps,
       tools = {
         ["cmd_runner"] = {
-          callback = "strategies.chat.agents.tools.cmd_runner",
+          callback = "strategies.chat.tools.catalog.cmd_runner",
           description = "Run shell commands initiated by the LLM",
         },
         ["files"] = {
-          callback = "strategies.chat.agents.tools.files",
+          callback = "strategies.chat.tools.catalog.files",
           description = "Update the file system with the LLM's response",
         },
         ["next_edit_suggestion"] = {
-          callback = "strategies.chat.agents.tools.next_edit_suggestion",
+          callback = "strategies.chat.tools.catalog.next_edit_suggestion",
           description = "Suggest and jump to the next position to edit",
         },
+        ["memory"] = {
+          callback = "strategies.chat.tools.catalog.memory",
+          description = "The memory tool enables Claude to store and retrieve information across conversations through a memory file directory",
+        },
         ["insert_edit_into_file"] = {
-          callback = "strategies.chat.agents.tools.insert_edit_into_file",
-          description = "Insert code into an existing file",
+          callback = "strategies.chat.tools.catalog.insert_edit_into_file",
+          description = "Robustly edit files with multiple automatic fallback strategies",
           opts = {
-            patching_algorithm = "strategies.chat.agents.tools.helpers.patch",
+            requires_approval = {
+              buffer = false,
+              file = false,
+            },
+            user_confirmation = false,
           },
         },
         ["create_file"] = {
-          callback = "strategies.chat.agents.tools.create_file",
+          callback = "strategies.chat.tools.catalog.create_file",
           description = "Create a file in the current working directory",
         },
+        ["delete_file"] = {
+          callback = "strategies.chat.tools.catalog.delete_file",
+          description = "Delete a file in the current working directory",
+        },
+        ["fetch_webpage"] = {
+          callback = "strategies.chat.tools.catalog.fetch_webpage",
+          description = "Fetches content from a webpage",
+          opts = {
+            adapter = "jina",
+          },
+        },
+        ["web_search"] = {
+          callback = "strategies.chat.tools.catalog.web_search",
+          description = "Searches the web for a given query",
+          opts = {
+            adapter = "tavily",
+          },
+        },
         ["file_search"] = {
-          callback = "strategies.chat.agents.tools.file_search",
+          callback = "strategies.chat.tools.catalog.file_search",
           description = "Search for files in the current working directory by glob pattern",
           opts = {
             max_results = 500,
           },
         },
         ["grep_search"] = {
-          callback = "strategies.chat.agents.tools.grep_search",
+          callback = "strategies.chat.tools.catalog.grep_search",
           description = "Search for text in the current working directory",
         },
         ["read_file"] = {
-          callback = "strategies.chat.agents.tools.read_file",
+          callback = "strategies.chat.tools.catalog.read_file",
           description = "Read a file in the current working directory",
         },
+        ["list_code_usages"] = {
+          callback = "strategies.chat.tools.catalog.list_code_usages",
+          description = "Find code symbol context",
+        },
         ["weather"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/weather.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/weather.lua",
+          description = "Get the latest weather",
+        },
+        ["weather_with_default"] = {
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/weather_with_default.lua",
           description = "Get the latest weather",
         },
         ["func"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func.lua",
           description = "Some function tool to test",
         },
         ["func_approval"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_approval.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_approval.lua",
           description = "Some function tool to test with an approval step",
           opts = {
             requires_approval = true,
           },
         },
         ["func_approval2"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_approval2.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_approval2.lua",
           description = "Some function tool to test with an approval step that's a table",
           opts = {
             requires_approval = {
@@ -129,71 +179,80 @@ return {
           },
         },
         ["func_handlers_once"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_handlers_once.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_handlers_once.lua",
           description = "Some function tool to test",
         },
         ["func2"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func2.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func2.lua",
           description = "Some function tool to test",
         },
         ["func_consecutive"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_consecutive.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_consecutive.lua",
           description = "Consecutive function tool to test",
         },
         ["func_error"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_error.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_error.lua",
           description = "Error function tool to test",
         },
         ["func_return_error"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_return_error.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_return_error.lua",
           description = "Error function tool to test",
         },
         ["func_queue"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_queue.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_queue.lua",
           description = "Some function tool to test",
         },
         ["func_queue_2"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_queue_2.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_queue_2.lua",
           description = "Some function tool to test",
         },
         ["func_async_1"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_async_1.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_async_1.lua",
           description = "Some function tool to test",
         },
         ["func_async_2"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/func_async_2.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/func_async_2.lua",
           description = "Some function tool to test",
         },
         ["cmd"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/cmd.lua",
           description = "Cmd tool",
         },
         ["cmd_consecutive"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd_consecutive.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/cmd_consecutive.lua",
           description = "Cmd tool",
         },
         ["cmd_error"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd_error.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/cmd_error.lua",
           description = "Cmd tool",
         },
         ["cmd_queue"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd_queue.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/cmd_queue.lua",
           description = "Cmd tool",
         },
         ["cmd_queue_error"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/cmd_queue_error.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/cmd_queue_error.lua",
           description = "Cmd tool",
         },
         ["mock_cmd_runner"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/mock_cmd_runner.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/mock_cmd_runner.lua",
           description = "Cmd tool",
         },
         -- Add tool with same name as a tool group to verify word boundary matching
         ["tool_group_tool"] = {
-          callback = vim.fn.getcwd() .. "/tests/strategies/chat/agents/tools/stubs/tool_group_tool.lua",
+          callback = vim.fn.getcwd() .. "/tests/strategies/chat/tools/catalog/stubs/tool_group_tool.lua",
           description = "Tool group extended",
         },
         groups = {
+          ["senior_dev"] = {
+            description = "Tool Group",
+            prompt = "I'm giving you access to ${tools} to help me out",
+            tools = {
+              "func",
+              "cmd",
+            },
+          },
+
           ["tool_group"] = {
             description = "Tool Group",
             system_prompt = "My tool group system prompt",
@@ -209,13 +268,13 @@ return {
             opts = { collapse_tools = true },
           },
           ["test_group2"] = {
-            description = "Group to be used for testing references",
+            description = "Group to be used for testing context",
             system_prompt = "Individual tools system prompt",
             tools = { "func", "weather" },
             opts = { collapse_tools = false },
           },
           ["remove_group"] = {
-            description = "Group to be removed during testing of references",
+            description = "Group to be removed during testing of context",
             system_prompt = "System prompt to be removed",
             tools = { "func", "weather" },
             opts = { collapse_tools = true },
@@ -223,7 +282,6 @@ return {
         },
         opts = {
           system_prompt = "My tool system prompt",
-          wait_timeout = 3000,
           folds = {
             enabled = false,
             failure_words = {
@@ -232,6 +290,7 @@ return {
               "invalid",
             },
           },
+          tool_replacement_message = "the ${tool} tool", -- The message to use when replacing tool names in the chat buffer
         },
       },
       variables = {
@@ -270,7 +329,7 @@ return {
       },
       slash_commands = {
         ["buffer"] = {
-          callback = "strategies.chat.slash_commands.buffer",
+          callback = "strategies.chat.slash_commands.catalog.buffer",
           description = "Insert open buffers",
           keymaps = {
             modes = {
@@ -284,7 +343,7 @@ return {
           },
         },
         ["fetch"] = {
-          callback = "strategies.chat.slash_commands.fetch",
+          callback = "strategies.chat.slash_commands.catalog.fetch",
           description = "Insert URL contents",
           opts = {
             adapter = "jina", -- jina|tavily
@@ -293,7 +352,7 @@ return {
           },
         },
         ["file"] = {
-          callback = "strategies.chat.slash_commands.file",
+          callback = "strategies.chat.slash_commands.catalog.file",
           description = "Insert a file",
           opts = {
             contains_code = true,
@@ -304,10 +363,13 @@ return {
       },
       opts = {
         blank_prompt = "",
+        wait_timeout = 3000,
+        system_prompt = "default system prompt",
       },
     },
     inline = {
       adapter = "test_adapter",
+      keymaps = og_config.strategies.inline.keymaps,
       variables = {
         ["foo"] = {
           callback = vim.fn.getcwd() .. "/tests/strategies/inline/variables/foo.lua",
@@ -349,9 +411,9 @@ return {
         },
       },
     },
-    ["Test References"] = {
+    ["Test Context"] = {
       strategy = "chat",
-      description = "Add some references",
+      description = "Add some context",
       opts = {
         index = 1,
         is_default = true,
@@ -359,7 +421,7 @@ return {
         short_name = "test_ref",
         auto_submit = false,
       },
-      references = {
+      context = {
         {
           type = "file",
           path = {
@@ -371,8 +433,17 @@ return {
       prompts = {
         {
           role = "foo",
-          content = "I need some references",
+          content = "I need some context",
         },
+      },
+    },
+  },
+  memory = {
+    default = {
+      description = "Default file selection for CodeCompanion",
+      files = {
+        "tests/stubs/memory/.rules",
+        "tests/stubs/memory/CLAUDE.md",
       },
     },
   },
@@ -381,10 +452,11 @@ return {
       icons = {
         buffer_pin = " ",
         buffer_watch = "👀 ",
-        tool_success = "!!",
-        tool_failure = "xx",
+        tool_success = "!! ",
+        tool_failure = "xx ",
       },
-      show_references = true,
+      show_context = true,
+      fold_context = false,
       show_settings = false,
       window = {
         layout = "vertical", -- float|vertical|horizontal|buffer
@@ -409,13 +481,64 @@ return {
       intro_message = "", -- Keep this blank or it messes up the screenshot tests
       show_tools_processing = false, -- Show the loading message when tools are being executed?
     },
-    diff = { enabled = false },
+    diff = {
+      enabled = false,
+      provider = "inline",
+      provider_opts = {
+        -- Options for inline diff provider
+        inline = {
+          layout = "float", -- float|buffer - Where to display the diff
+
+          diff_signs = {
+            signs = {
+              text = "▌", -- Sign text for normal changes
+              reject = "✗", -- Sign text for rejected changes in super_diff
+              highlight_groups = {
+                addition = "DiagnosticOk",
+                deletion = "DiagnosticError",
+                modification = "DiagnosticWarn",
+              },
+            },
+            -- Super Diff options
+            icons = {
+              accepted = " ",
+              rejected = " ",
+            },
+            colors = {
+              accepted = "DiagnosticOk",
+              rejected = "DiagnosticError",
+            },
+          },
+
+          opts = {
+            context_lines = 3, -- Number of context lines in hunks
+            dim = 25, -- Background dim level for floating diff (0-100, [100 full transparent], only applies when layout = "float")
+            full_width_removed = true, -- Make removed lines span full width
+            show_keymap_hints = true, -- Show "gda: accept | gdr: reject" hints above diff
+            show_removed = true, -- Show removed lines as virtual text
+          },
+        },
+
+        -- Options for the split provider
+        split = {
+          close_chat_at = 240, -- Close an open chat buffer if the total columns of your display are less than...
+          layout = "vertical", -- vertical|horizontal split
+          opts = {
+            "internal",
+            "filler",
+            "closeoff",
+            "algorithm:histogram", -- https://adamj.eu/tech/2024/01/18/git-improve-diff-histogram/
+            "indent-heuristic", -- https://blog.k-nut.eu/better-git-diffs
+            "followwrap",
+            "linematch:120",
+          },
+        },
+      },
+    },
     icons = {
       loading = " ",
       warning = " ",
     },
   },
-  opts = {
-    system_prompt = "default system prompt",
-  },
+  opts = {},
 }

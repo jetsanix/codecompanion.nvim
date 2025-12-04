@@ -1,4 +1,5 @@
 ---
+description: CodeCompanion is a Neovim plugin which streamlines how you write code with LLMs, in Neovim
 prev: false
 next:
   text: 'Installation'
@@ -7,22 +8,25 @@ next:
 
 # Welcome to CodeCompanion.nvim
 
-> AI-powered coding, seamlessly in _Neovim_
+> AI Coding, Vim Style
 
-CodeCompanion is a productivity tool which streamlines how you develop with LLMs, in Neovim.
+CodeCompanion is a Neovim plugin which streamlines how you write code with LLMs, in Neovim.
 
 <p>
-<video controls muted src="https://github.com/user-attachments/assets/aa109f1d-0ec9-4f08-bd9a-df99da03b9a4"></video>
+<video controls muted src="https://github.com/user-attachments/assets/3cc83544-2690-49b5-8be6-51e671db52ef"></video>
 </p>
 
 ## Features
 
 - :speech_balloon: [Copilot Chat](https://github.com/features/copilot) meets [Zed AI](https://zed.dev/blog/zed-ai), in Neovim
-- :electric_plug: Support for Anthropic, Copilot, GitHub Models, DeepSeek, Gemini, Mistral AI, Novita, Ollama, OpenAI, Azure OpenAI, HuggingFace and xAI LLMs out of the box (or bring your own!)
+- :electric_plug: Support for LLMs from Anthropic, Copilot, GitHub Models, DeepSeek, Gemini, Mistral AI, Novita, Ollama, OpenAI, Azure OpenAI, HuggingFace and xAI out of the box (or bring your own!)
+- :robot: Support for [Agent Client Protocol](https://agentclientprotocol.com/overview/introduction), enabling coding with agents like [Augment Code](https://docs.augmentcode.com/cli/overview), [Cagent](https://github.com/docker/cagent) from Docker, [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), [Codex](https://openai.com/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Goose](https://block.github.io/goose/), [Kimi CLI](https://github.com/MoonshotAI/kimi-cli) and [opencode](https://opencode.ai)
 - :heart_hands: User contributed and supported [adapters](/configuration/adapters#community-adapters)
 - :rocket: [Inline transformations](/usage/inline-assistant.html), code creation and refactoring
-- :robot: [Variables](/usage/chat-buffer/variables), [Slash Commands](/usage/chat-buffer/slash-commands), [Agents/Tools](/usage/chat-buffer/agents) and [Workflows](/usage/workflows) to improve LLM output
-- :sparkles: Built in [prompt library](/usage/action-palette.html) for common tasks like advice on LSP errors and code explanations
+- :robot: [Variables](/usage/chat-buffer/variables), [Slash Commands](/usage/chat-buffer/slash-commands), [Tools](/usage/chat-buffer/tools) and [Workflows](/usage/workflows) to improve LLM output
+- :brain: Support for [memory](/usage/chat-buffer/memory) files like `CLAUDE.md`, `.cursor/rules` and your own custom ones
+- :crystal_ball: Native [Super Diff](/usage/chat-buffer/index#super-diff) for tracking agent edits
+- :sparkles: Built-in [prompt library](/usage/action-palette.html) for common tasks like advice on LSP errors and code explanations
 - :building_construction: Create your own [custom prompts](extending/prompts), Variables and Slash Commands
 - :books: Have [multiple chats](/usage/introduction#quickly-accessing-a-chat-buffer) open at the same time
 - :art: Support for [vision and images](/usage/chat-buffer/#images-vision) as input

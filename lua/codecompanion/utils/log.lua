@@ -1,8 +1,8 @@
 ---@class CodeCompanion.LogHandler
 ---@field type? string
----@field level? integer
----@field formatter? fun(level: integer, msg: string, ...: any)
----@field handle? fun(level: integer, text: string)
+---@field level? number
+---@field formatter? fun(level: number, msg: string, ...: any)
+---@field handle? fun(level: number, text: string)
 local LogHandler = {}
 
 local levels_reverse = {}
@@ -62,7 +62,7 @@ local function create_file_handler(opts)
   if not ok then
     stdpath = vim.fn.stdpath("cache")
   end
-  local filepath = vim.fs.joinpath(stdpath, opts.filename)
+  local path = vim.fs.joinpath(stdpath, opts.filename)
   --
   local write_queue = {}
   local is_writing = false
@@ -77,7 +77,7 @@ local function create_file_handler(opts)
     write_queue = {}
 
     a.run(function()
-      local err, fd = a.uv.fs_open(filepath, "a", 438)
+      local err, fd = a.uv.fs_open(path, "a", 438)
       if err then
         vim.notify(string.format("Failed to open log file: %s", err), vim.log.levels.ERROR, { title = "CodeCompanion" })
         is_writing = false
@@ -176,7 +176,7 @@ local Logger = {}
 
 ---@class CodeCompanion.LoggerArgs
 ---@field handlers CodeCompanion.LogHandler[]
----@field level nil|integer
+---@field level nil|number
 
 ---@param opts CodeCompanion.LoggerArgs
 function Logger.new(opts)
@@ -197,7 +197,7 @@ function Logger.new(opts)
   return log
 end
 
----@param level integer
+---@param level number
 function Logger:set_level(level)
   for _, handler in ipairs(self.handlers) do
     handler.level = level
@@ -209,7 +209,7 @@ function Logger:get_handlers()
   return self.handlers
 end
 
----@param level integer
+---@param level number
 ---@param msg string
 ---@param ... any[]
 function Logger:log(level, msg, ...)

@@ -1,3 +1,7 @@
+---
+description: Configure the Inline Assistant in CodeCompanion
+---
+
 # Configuring the Inline Assistant
 
 <p align="center">
@@ -5,6 +9,8 @@
 </p>
 
 CodeCompanion provides an _inline_ strategy for quick, direct interaction with your code. Unlike the chat buffer, the inline assistant integrates responses directly into the current buffer—allowing the LLM to add or replace code as needed.
+
+Only _http_ adapters are supported for the inline assistant.
 
 ## Keymaps
 
@@ -21,15 +27,35 @@ require("codecompanion").setup({
         },
         reject_change = {
           modes = { n = "gr" },
+          opts = { nowait = true },
           description = "Reject the suggested change",
         },
       },
     },
   },
-}),
+})
 ```
 
-In this example, `<leader>a` (or `ga` on some keyboards) accepts inline changes, while `gr` rejects them.
+In this example, `ga` accepts inline changes, while `gr` rejects them.
+
+You can also cancel an inline request with:
+
+```lua
+require("codecompanion").setup({
+  strategies = {
+    inline = {
+      keymaps = {
+        stop = {
+          modes = { n = "q" },
+          index = 4,
+          callback = "keymaps.stop",
+          description = "Stop request",
+        },
+      },
+    },
+  },
+})
+```
 
 ## Variables
 
@@ -65,7 +91,7 @@ require("codecompanion").setup({
       layout = "vertical", -- vertical|horizontal|buffer
     },
   }
-}),
+})
 ```
 
 ## Diff

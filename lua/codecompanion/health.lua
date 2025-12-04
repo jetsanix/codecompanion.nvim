@@ -13,10 +13,6 @@ M.deps = {
     name = "plenary.nvim",
     plugin_name = "plenary",
   },
-  {
-    name = "nvim-treesitter",
-    plugin_name = "nvim-treesitter",
-  },
 }
 
 M.parsers = {
@@ -32,10 +28,8 @@ M.libraries = {
   {
     name = "curl",
   },
-  {
-    name = "base64",
-    optional = true,
-  },
+  -- used to guess mimetype for multimodal.
+  { name = "file", optional = true },
   {
     name = "rg",
     optional = true,

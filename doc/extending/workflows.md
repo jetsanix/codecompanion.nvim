@@ -1,3 +1,7 @@
+---
+description: Learn how to create your own agentic workflows with CodeCompanion
+---
+
 # Creating Workflows
 
 Workflows in CodeCompanion, are successive prompts which can be automatically sent to the LLM in a turn-based manner. This allows for actions such as reflection and planning to be easily implemented into your workflow. They can be combined with tools to create agentic workflows, which could be used to automate common activities like editing files and then running a test suite.
@@ -92,8 +96,8 @@ prompts = {
       role = constants.USER_ROLE,
       opts = { auto_submit = false },
       content = function()
-        -- Leverage auto_tool_mode which disables the requirement of approvals and automatically saves any edited buffer
-        vim.g.codecompanion_auto_tool_mode = true
+        -- Leverage YOLO mode which disables the requirement of approvals and automatically saves any edited buffer
+        vim.g.codecompanion_yolo_mode = true
 
         -- Some clear instructions for the LLM to follow
         return [[### Instructions
@@ -116,7 +120,7 @@ We'll repeat this cycle until the tests pass. Ensure no deviations from these st
 },
 ```
 
-The first prompt in a workflow should set the ask of the LLM and provide clear instructions. In this case, we're giving the LLM access to the [@insert_edit_into_file](/usage/chat-buffer/agents.html#files) and [@cmd_runner](/usage/chat-buffer/agents.html#cmd-runner) tools to edit a buffer and run tests, respectively.
+The first prompt in a workflow should set the ask of the LLM and provide clear instructions. In this case, we're giving the LLM access to the [@insert_edit_into_file](/usage/chat-buffer/tools.html#files) and [@cmd_runner](/usage/chat-buffer/tools.html#cmd-runner) tools to edit a buffer and run tests, respectively.
 
 We're giving the LLM knowledge of the buffer with the `#buffer` variable and also telling CodeCompanion to watch it for any changes with the `{watch}` parameter. Prior to sending a response to the LLM, the plugin will share any changes to that buffer, keeping the LLM updated.
 
@@ -146,9 +150,9 @@ Now let's look at how we trigger the automated reflection prompts:
 },
 ```
 
-Now there's a little bit more to unpack in this prompt. Firstly, we're automatically submitting the prompt to the LLM to save the user some time and keypresses. Next, we're scoping the prompt to only be sent to the chat buffer if the currently active tool is the [@cmd_runner](/usage/chat-buffer/agents.html#cmd-runner).
+Now there's a little bit more to unpack in this prompt. Firstly, we're automatically submitting the prompt to the LLM to save the user some time and keypresses. Next, we're scoping the prompt to only be sent to the chat buffer if the currently active tool is the [@cmd_runner](/usage/chat-buffer/tools.html#cmd-runner).
 
-We're also leveraging a function called `repeat_until`. This ensures that the prompt is always attached to the chat buffer until a condition is met. In this case, until the tests pass. In the [@cmd_runner](/usage/chat-buffer/agents.html#cmd-runner) tool, we ask the LLM to pass a flag if it detects a test suite is being run. The plugin picks up on that flag and puts the test outcome into the chat buffer class as a flag.
+We're also leveraging a function called `repeat_until`. This ensures that the prompt is always attached to the chat buffer until a condition is met. In this case, until the tests pass. In the [@cmd_runner](/usage/chat-buffer/tools.html#cmd-runner) tool, we ask the LLM to pass a flag if it detects a test suite is being run. The plugin picks up on that flag and puts the test outcome into the chat buffer class as a flag.
 
 Finally, we're letting the LLM know that the tests failed, and asking it to fix.
 
@@ -158,20 +162,68 @@ There are also a number of options which haven't been covered in the example pro
 
 **Specifying an Adapter**
 
-You can specify a specific adapter for a workflow prompt:
+You can specify a specific adapter for a workflow:
 
 ```lua
 ["Workflow"] = {
   strategy = "workflow",
   description = "My workflow",
   opts = {
-    adapter = "openai", -- Always use the OpenAI adapter for this workflow
+    adapter = {
+      name = "deepseek",
+      model = "deepseek-chat"
+    }
   },
   -- Prompts go here
 },
 ```
 
+You can even specify an adapter and model on each workflow prompt:
+
+> [!NOTE]
+> The adapter name is required however model is optional.
+
+
+```lua
+-- ... Workflow config goes above this
+opts = {
+  adapter = {
+    name = "copilot",
+    model = "gpt-5",
+  },
+},
+prompts = {
+  {
+    {
+      role = constants.USER_ROLE,
+      content = "Do not write any code. Let's brainstorm ideas first. Come up with a plan for ___",
+      opts = {
+        auto_submit = false,
+      },
+    },
+  },
+  {
+    {
+      role = constants.USER_ROLE,
+      content = "Plan looks good. Let's implement it.",
+      opts = {
+        adapter = {
+          name = "copilot",
+          -- Use a more cost effective cheaper model for token intensive activities
+          -- This model will persist for the duration of the chat unless changed
+          model = "gpt-4.1",
+        },
+        auto_submit = false,
+      },
+    },
+  },
+},
+```
+
 **Persistent Prompts**
+
+> [!NOTE]
+> Persistent prompts are not available for the first prompt group.
 
 By default, all workflow prompts are of the type `once`. That is, they are consumed once and then removed. However, this can be changed:
 
@@ -196,6 +248,4 @@ By default, all workflow prompts are of the type `once`. That is, they are consu
   },
 },
 ```
-
-Note that persistent prompts are not available for the first prompt group.
 
