@@ -17,9 +17,15 @@ local function resolve_model_opts(adapter)
     model = model(adapter)
   end
   if type(choices) == "function" then
-    choices = choices(adapter, { async = false })
+    -- Avoid blocking during initialization
+    choices = choices(adapter, { async = true })
   end
-  return choices[model]
+
+  if adapter.model and choices and choices[model] then
+    adapter.model.info = choices[model]
+  end
+
+  return choices and choices[model] or { opts = {} }
 end
 
 ---Return the handlers of a specific adapter, ensuring the correct endpoint is set
@@ -93,7 +99,7 @@ return {
   env = {
     ---@return string
     api_key = function()
-      return token.fetch().copilot_token
+      return token.fetch({ force = true }).copilot_token
     end,
   },
   headers = {
@@ -115,9 +121,14 @@ return {
       end
       _fetching_models = true
 
+      -- Defer token initialization - only fetch models in background without requiring tokens
       vim.schedule(function()
         pcall(function()
-          get_models.choices(self, { async = true })
+          -- Only fetch models if we already have a token cached, otherwise skip
+          local cached_token = token.fetch()
+          if cached_token and cached_token.copilot_token then
+            get_models.choices(self, { token = cached_token, async = true })
+          end
         end)
         _fetching_models = false
       end)
@@ -127,6 +138,14 @@ return {
     ---@param self CodeCompanion.HTTPAdapter
     ---@return boolean
     setup = function(self)
+      -- Ensure models are fetched synchronously before checking capabilities
+      -- This prevents features from being disabled due to missing model info
+      local fetched_token = token.fetch({ force = true })
+      if fetched_token and fetched_token.copilot_token then
+        -- Force synchronous model fetch to ensure we have model capabilities
+        get_models.choices(self, { token = fetched_token, async = false })
+      end
+
       local model_opts = resolve_model_opts(self)
 
       if (self.opts and self.opts.stream) and (model_opts and model_opts.opts and model_opts.opts.can_stream) then
@@ -313,12 +332,15 @@ return {
       default = "gpt-4.1",
       ---@type fun(self: CodeCompanion.HTTPAdapter, opts?: table): table
       choices = function(self, opts)
-        -- Ensure token is available before getting models
-        local fetched = token.fetch()
+        opts = opts or {}
+        -- Force token initialization for synchronous requests (user-initiated model selection)
+        -- Don't force for async requests (background operations)
+        local force = opts.async == false
+        local fetched = token.fetch({ force = force })
         if not fetched or not fetched.copilot_token then
           return { ["gpt-4.1"] = { opts = {} } }
         end
-        return get_models.choices(self, opts, fetched)
+        return get_models.choices(self, { token = fetched, async = opts.async })
       end,
     },
     ---@type CodeCompanion.Schema
@@ -328,7 +350,7 @@ return {
       type = "number",
       default = 0.1,
       ---@type fun(self: CodeCompanion.HTTPAdapter): boolean
-      condition = function(self)
+      enabled = function(self)
         local model = self.schema.model.default
         if type(model) == "function" then
           model = model()
@@ -357,7 +379,7 @@ return {
       type = "number",
       default = 1,
       ---@type fun(self: CodeCompanion.HTTPAdapter): boolean
-      condition = function(self)
+      enabled = function(self)
         local model = self.schema.model.default
         if type(model) == "function" then
           model = model()
@@ -373,7 +395,7 @@ return {
       type = "number",
       default = 1,
       ---@type fun(self: CodeCompanion.HTTPAdapter): boolean
-      condition = function(self)
+      enabled = function(self)
         local model = self.schema.model.default
         if type(model) == "function" then
           model = model()

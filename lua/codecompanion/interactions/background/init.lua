@@ -53,15 +53,15 @@ function Background.new(args)
   if args.adapter and adapters.resolved(args.adapter) then
     self.adapter = args.adapter --[[@as CodeCompanion.HTTPAdapter]]
   else
-    self.adapter = adapters.resolve(args.adapter or config.strategies.chat.adapter)
+    self.adapter = adapters.resolve(args.adapter or config.interactions.background.adapter)
   end
 
   -- Silence errors
-  if self.adapter.type ~= "http" then
-    return log:debug("[background::init] Only HTTP adapters are supported for background interactions")
-  end
   if not self.adapter then
-    return log:debug("[background::init] No adapter assigned for background interactions")
+    return log:debug("[Background] No adapter found")
+  end
+  if self.adapter.type ~= "http" then
+    return log:warn("Only HTTP adapters are supported for background interactions")
   end
 
   self.settings = schema.get_default(self.adapter, args.settings)

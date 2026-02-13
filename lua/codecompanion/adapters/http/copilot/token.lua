@@ -146,7 +146,9 @@ local function get_copilot_token()
       insecure = config.adapters.http.opts.allow_insecure,
       proxy = config.adapters.http.opts.proxy,
       on_error = function(err)
-        log:error("Copilot Adapter: Token request error %s", err)
+        vim.schedule(function()
+          log:error("Copilot Adapter: Token request error %s", err)
+        end)
       end,
     })
   end)
@@ -191,10 +193,16 @@ function M.init(adapter)
   return true
 end
 
----Return the Copilot tokens
----@return {oauth_token: CopilotOAuthToken, copilot_token: CopilotToken|nil}
-function M.fetch()
-  pcall(M.init)
+---Return the Copilot tokens without initializing them
+---@param opts? { force: boolean }
+---@return { oauth_token: CopilotOAuthToken, copilot_token: CopilotToken|nil }
+function M.fetch(opts)
+  opts = opts or {}
+
+  -- Only initialize tokens if explicitly requested or if we already have an oauth token cached
+  if opts.force or M._oauth_token then
+    pcall(M.init)
+  end
 
   return {
     oauth_token = M._oauth_token,

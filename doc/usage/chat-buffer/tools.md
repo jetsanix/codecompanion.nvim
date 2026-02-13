@@ -59,10 +59,10 @@ Use @{cmd_runner} to install any missing libraries in my project
 
 Some commands do not write any data to [stdout](https://en.wikipedia.org/wiki/Standard_streams#Standard_output_(stdout)) which means the plugin can't pass the output of the execution to the LLM. When this occurs, the tool will instead share the exit code.
 
-The LLM is specifically instructed to detect if you're running a test suite, and if so, to insert a flag in its request. This is then detected and the outcome of the test is stored in the corresponding flag on the chat buffer. This makes it ideal for [workflows](/extending/workflows) to hook into.
+The LLM is specifically instructed to detect if you're running a test suite, and if so, to insert a flag in its request. This is then detected and the outcome of the test is stored in the corresponding flag on the chat buffer. This makes it ideal for [agentic workflows](/extending/agentic-workflows) to hook into.
 
 **Options:**
-- `requires_approval` require approval before running a command? (Default: true)
+- `require_approval_before` require approval before running a command? (Default: true)
 
 ### create_file
 
@@ -76,7 +76,7 @@ Can you create some test fixtures using @{create_file}?
 ```
 
 **Options:**
-- `requires_approval` require approval before creating a file? (Default: true)
+- `require_approval_before` require approval before creating a file? (Default: true)
 
 ### delete_file
 
@@ -90,7 +90,7 @@ Can you use @{delete_file} to delete the quotes.lua file?
 ```
 
 **Options:**
-- `requires_approval` require approval before deleting a file? (Default: true)
+- `require_approval_before` require approval before deleting a file? (Default: true)
 
 ### fetch_webpage
 
@@ -161,9 +161,9 @@ Can you apply the suggested changes to the buffer with @{insert_edit_into_file}?
 
 **Options:**
 - `patching_algorithm` (string|table|function) The algorithm to use to determine how to edit files and buffers
-- `requires_approval.buffer` (boolean) Require approval before editng a buffer? (Default: false)
-- `requires_approval.file` (boolean) Require approval before editng a file? (Default: true)
-- `user_confirmation` (boolean) require confirmation from the user before moving on in the chat buffer? (Default: true)
+- `require_approval_before.buffer` (boolean) Require approval before editng a buffer? (Default: false)
+- `require_approval_before.file` (boolean) Require approval before editng a file? (Default: true)
+- `require_confirmation_after` (boolean) require confirmation after the execution and before moving on in the chat buffer? (Default: true)
 
 ### list_code_usages
 
@@ -193,9 +193,6 @@ Can you use @{list_code_usages} to show me how the `Tools` class is implemented 
 
 > [!IMPORTANT]
 > For security, all memory operations are restricted to the `/memories` directory
-
-> [!NOTE]
-> This tool is separate to CodeCompanion's [memory](/usage/chat-buffer/memory) implementation but the two can be combined by giving a memory group knowledge of the `/memories` directory
 
 The memory tool enables LLMs to store and retrieve information across conversations through a memory file directory (`/memories`).
 
@@ -337,23 +334,33 @@ In the `openai_responses` adapter, the following tools are available:
 
 - `web_search` - Allow models to search the web for the latest information before generating a response.
 
-## Useful Tips
-
-### YOLO mode
-
-The plugin allows you to run tools on autopilot, with YOLO mode. This automatically approves any tool use instead of prompting the user, disables any diffs, submits errors and success messages and automatically saves any buffers that tools may have edited. In the chat buffer, the keymap `gty` will toggle YOLO mode on/off. Alternatively, set the global variable `vim.g.codecompanion_yolo_mode` to enable this or set it to `nil` to undo this.
-
-## Security and Approvals
+## Security
 
 CodeCompanion takes security very seriously, especially in a world of agentic code development. To that end, every effort is made to ensure that LLMs are only given the information that they need to execute a tool successfully. CodeCompanion will endeavour to make sure that the full disk path to your current working directory (cwd) in Neovim is never shared. The impact of this is that the LLM can only work within the cwd when executing tools but will minimize actions that are hard to [recover from](https://www.businessinsider.com/replit-ceo-apologizes-ai-coding-tool-delete-company-database-2025-7).
 
-The plugin also puts approvals at the heart of its workflow. Some tools, such as the [@cmd_runner](#cmd-runner), require the user to approve any actions before they can be executed. If the tool requires this a `vim.fn.confirm` dialog will prompt you for a response. You may also [enforce](/configuration/chat-buffer#approvals) an approval for _any_ tool.
+### Approvals
 
-When using CodeCompanion's in-built tools, there are three choices:
+> [!NOTE]
+> This applies to CodeCompanion's built-in tools only. ACP agents have their own tools and approval systems.
 
-1. **Approve** - The tool will be executed
-2. **Reject** - The tool will **NOT** be executed
-3. **Cancel** - All tools in the queue will **NOT** be executed
+In order to give developers the confidence to use tools, CodeCompanion has implemented a comprehensive approval system for it's built-in tools.
+
+CodeCompanion segregates tool approvals by chat buffer and by tool. This means that if you approve a tool in one chat buffer, it is _not_ approved for use anywhere else. Similarly, if you approve a tool once, you'll be prompted to approve it again next time it's executed.
+
+When prompted, the user has four options available to them:
+
+- **Allow always** - Always allow this tool/cmd to be executed without further prompts
+- **Allow once** - Allow this tool/cmd to be executed this one time
+- **Reject** - Reject the execution of this tool/cmd and provide a reason
+- **Cancel** - Cancel this tool execution and all other pending tool executions
+
+Certain tools with potentially destructive capabilities have an additional layer of protection. Instead of being approved at a tool level, these are approved at a command level. Taking the `cmd_runner` tool as an example. If you approve an agent to always run `make format`, if it tries to run `make test`, you'll be prompted to approve that command specifically.
+
+Approvals can be reset for the given chat buffer by using the `gtx` keymap.
+
+### YOLO mode
+
+To bypass the approval system, you can use `gty` in the chat buffer to enable YOLO mode. This will automatically approve all tool executions without prompting the user. However, note that some tools such as `cmd_runner` and `delete_file` are excluded from this.
 
 ## Compatibility
 
@@ -376,5 +383,5 @@ Below is the tool use status of various adapters and models in CodeCompanion:
 
 
 > [!IMPORTANT]
-> When using Mistral, you will need to set `strategies.chat.tools.opts.auto_submit_errors` to `true`. See [#2278](https://github.com/olimorris/codecompanion.nvim/pull/2278) for more information.
+> When using Mistral, you will need to set `interactions.chat.tools.opts.auto_submit_errors` to `true`. See [#2278](https://github.com/olimorris/codecompanion.nvim/pull/2278) for more information.
 

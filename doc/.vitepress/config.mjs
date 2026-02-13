@@ -1,6 +1,5 @@
 import { joinURL, withoutTrailingSlash } from "ufo";
 import { defineConfig } from "vitepress";
-import { tabsMarkdownPlugin } from "vitepress-plugin-tabs";
 import { execSync } from "node:child_process";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
@@ -75,11 +74,6 @@ const headers = inProd ? [...baseHeaders, umamiScript] : baseHeaders;
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
   defineConfig({
-    markdown: {
-      config(md) {
-        md.use(tabsMarkdownPlugin);
-      },
-    },
     mermaid: {
       securityLevel: "loose", // Allows more flexibility
       theme: "base", // Use base theme to allow CSS variables to take effect
@@ -91,8 +85,18 @@ export default withMermaid(
     lang: "en",
     cleanUrls: true,
     head: headers,
-    sitemap: { hostname: siteUrl },
+    sitemap: {
+      hostname: siteUrl,
+    },
     themeConfig: {
+      lastUpdated: {
+        formatOptions: {
+          dateStyle: "medium",
+        },
+      },
+
+      outline: "deep",
+
       logo: "https://github.com/user-attachments/assets/7083eeb1-2f6c-4cf6-82ff-bc3171cab801",
       nav: [
         {
@@ -114,21 +118,22 @@ export default withMermaid(
         { text: "Introduction", link: "/" },
         { text: "Installation", link: "/installation" },
         { text: "Getting Started", link: "/getting-started" },
+        { text: "Upgrading", link: "/upgrading" },
         {
           text: "Configuration",
           collapsed: true,
           items: [
             { text: "Action Palette", link: "/configuration/action-palette" },
-            { text: "ACP", link: "/configuration/acp" },
-            { text: "Adapters", link: "/configuration/adapters" },
+            { text: "Adapters - ACP", link: "/configuration/adapters-acp" },
+            { text: "Adapters - HTTP", link: "/configuration/adapters-http" },
             { text: "Chat Buffer", link: "/configuration/chat-buffer" },
             { text: "Extensions", link: "/configuration/extensions" },
             {
               text: "Inline Assistant",
               link: "/configuration/inline-assistant",
             },
-            { text: "Memory", link: "/configuration/memory" },
             { text: "Prompt Library", link: "/configuration/prompt-library" },
+            { text: "Rules", link: "/configuration/rules" },
             { text: "System Prompt", link: "/configuration/system-prompt" },
             { text: "Others", link: "/configuration/others" },
           ],
@@ -146,7 +151,7 @@ export default withMermaid(
               collapsed: true,
               items: [
                 { text: "Agents", link: "/usage/chat-buffer/agents" },
-                { text: "Memory", link: "/usage/chat-buffer/memory" },
+                { text: "Rules", link: "/usage/chat-buffer/rules" },
                 {
                   text: "Slash Commands",
                   link: "/usage/chat-buffer/slash-commands",
@@ -157,21 +162,24 @@ export default withMermaid(
             },
             { text: "Events", link: "/usage/events" },
             { text: "Inline Assistant", link: "/usage/inline-assistant" },
-            { text: "User Interface", link: "/usage/ui" },
+            { text: "Prompt Library", link: "/usage/prompt-library" },
             { text: "Workflows", link: "/usage/workflows" },
+            { text: "UI", link: "/usage/ui" },
           ],
         },
         {
           text: "Extending the Plugin",
           collapsed: true,
           items: [
-            { text: "Creating Adapters", link: "/extending/adapters" },
-            { text: "Creating Extensions", link: "/extending/extensions" },
-            { text: "Creating Memory Parsers", link: "/extending/parsers" },
-            { text: "Creating Prompts", link: "/extending/prompts" },
-            { text: "Creating Tools", link: "/extending/tools" },
-            { text: "Creating Workflows", link: "/extending/workflows" },
-            { text: "Creating Workspaces", link: "/extending/workspace" },
+            { text: "Adapters", link: "/extending/adapters" },
+            {
+              text: "Agentic Workflows",
+              link: "/extending/agentic-workflows",
+            },
+            { text: "Extensions", link: "/extending/extensions" },
+            { text: "Rules Parsers", link: "/extending/parsers" },
+            { text: "Tools", link: "/extending/tools" },
+            { text: "UI", link: "/extending/ui" },
           ],
         },
       ],

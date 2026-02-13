@@ -68,12 +68,16 @@ local function decode(source, node)
   elseif nt == "block_mapping" then
     local result = {}
     for child in node:iter_children() do
+      if child:type() == "comment" then
+        goto continue
+      end
       assert(child:type() == "block_mapping_pair")
       local key = decode(source, child:named_child(0))
       if not key then
         error("Could not decode map key")
       end
       result[key] = decode(source, child:named_child(1))
+      ::continue::
     end
     -- Provide a way to get the TSNode for a map
     return setmetatable(result, {
@@ -89,6 +93,13 @@ local function decode(source, node)
       end
     end
     return ret
+  elseif nt == "block_sequence_item" then
+    for child in node:iter_children() do
+      if child:named() then
+        return decode(source, child)
+      end
+    end
+    return nil
   elseif nt == "string_scalar" then
     return vim.treesitter.get_node_text(node, source)
   elseif nt == "single_quote_scalar" or nt == "double_quote_scalar" then
